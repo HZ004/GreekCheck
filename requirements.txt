@@ -1,4 +1,7 @@
-streamlit
+streamlit>=1.20
+streamlit-autorefresh
+requests
 pandas
 numpy
-upstox-api
+matplotlib
+pytz
