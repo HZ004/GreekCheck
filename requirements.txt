@@ -2,7 +2,6 @@ streamlit
 pandas
 numpy
 plotly
-requests
-websocket-client
-python-dateutil
-
+scipy
+pytz
+upstox-api
