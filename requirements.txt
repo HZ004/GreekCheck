@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+plotly
+requests
+websocket-client
+python-dateutil
+upstox-python
