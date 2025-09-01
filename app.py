@@ -1,133 +1,129 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import requests
-import websocket
-import json
-import threading
 import datetime as dt
-from dateutil import parser
-from scipy.stats import norm
+import threading
+import time
+from upstox_api.api import Upstox
 
-# ========================
-# Black-Scholes Greeks
-# ========================
-def bs_greeks(S, K, T, r, sigma, option_type="call"):
-    """Return delta, gamma, theta, vega for an option."""
-    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-    delta = norm.cdf(d1) if option_type == "call" else -norm.cdf(-d1)
-    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
-    vega = S * norm.pdf(d1) * np.sqrt(T)
-    theta = -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))
-    if option_type == "call":
-        theta -= r * K * np.exp(-r * T) * norm.cdf(d2)
-    else:
-        theta += r * K * np.exp(-r * T) * norm.cdf(-d2)
-    return delta, gamma, theta, vega
-
-# ========================
-# Globals
-# ========================
-LIVE_DATA = {}
+# =========================
+# GLOBAL CONFIG
+# =========================
+st.set_page_config(page_title="Live Option Greeks Dashboard", layout="wide")
+API_KEY = "YOUR_UPSTOX_API_KEY"  # Replace with your API Key
+FEED_INTERVAL = 1  # seconds between data refresh
 SELECTED_CONTRACTS = []
+EXPIRY_LIST = []
+STOP_FETCHING = False
 
-# ========================
-# Fetch Instruments
-# ========================
-def fetch_instruments(token):
-    url = "https://api-v2.upstox.com/instruments"
-    headers = {"Authorization": f"Bearer {token}"}
-    response = requests.get(url, headers=headers)
-    data = response.json()
-    df = pd.DataFrame(data["data"])
-    return df
 
-# ========================
-# Get ATM strikes
-# ========================
-def get_contracts(df, spot, expiry, symbol="NIFTY"):
-    opt_df = df[(df["instrument_type"].isin(["CE", "PE"])) & (df["name"] == symbol) & (df["expiry"] == expiry)]
-    strikes = sorted(opt_df["strike"].unique())
-    atm_strike = min(strikes, key=lambda x: abs(x - spot))
-    idx = strikes.index(atm_strike)
-    selected_strikes = strikes[max(0, idx-5):idx+6]  # 5 OTM + 5 ITM
-    final_df = opt_df[opt_df["strike"].isin(selected_strikes)]
-    return final_df
+# =========================
+# FUNCTION: INIT UPSTOX
+# =========================
+def init_upstox(access_token):
+    u = Upstox(API_KEY, access_token)
+    u.get_master_contract('NSE_EQ')  # Load master contracts
+    u.get_master_contract('NSE_FO')
+    return u
 
-# ========================
-# WebSocket Handler
-# ========================
-def on_message(ws, message):
-    data = json.loads(message)
-    if "feeds" in data:
-        for key, val in data["feeds"].items():
-            price = val.get("ltp")
-            if price:
-                LIVE_DATA[key] = price
 
-def start_websocket(token, instrument_keys):
-    def run():
-        ws = websocket.WebSocketApp(
-            "wss://api-v2.upstox.com/feed/market-data-feed",
-            header={"Authorization": f"Bearer {token}"},
-            on_message=on_message
-        )
-        ws.on_open = lambda ws: ws.send(json.dumps({
-            "guid": "main",
-            "method": "sub",
-            "data": {"instrumentKeys": instrument_keys, "mode": "full"}
-        }))
-        ws.run_forever()
-    thread = threading.Thread(target=run)
-    thread.start()
+# =========================
+# FUNCTION: FETCH EXPIRIES
+# =========================
+def get_expiries(upstox_obj, symbol="NIFTY"):
+    contracts = upstox_obj.get_master_contract('NSE_FO')
+    expiries = sorted({c.expiry for c in contracts.values() if c.symbol == symbol})
+    return expiries[:4]  # return next 4 expiries
 
-# ========================
-# Streamlit UI
-# ========================
-st.title("📈 NIFTY Options Live Greeks Dashboard")
 
-access_token = st.text_input("Enter Upstox Access Token:", type="password")
+# =========================
+# FUNCTION: GET ATM STRIKE
+# =========================
+def get_atm_strike(upstox_obj, symbol="NIFTY"):
+    quote = upstox_obj.get_live_feed(f"NSE_EQ|{symbol}", "ltp")
+    ltp = quote['ltp']
+    atm = round(ltp / 50) * 50  # Assuming NIFTY strike interval of 50
+    return atm
 
-if access_token:
-    st.success("Access Token Set!")
-    if st.button("Initialize Contracts"):
-        st.info("Fetching instruments...")
-        inst_df = fetch_instruments(access_token)
-        spot = float(inst_df[(inst_df["instrument_type"] == "EQ") & (inst_df["name"] == "NIFTY")]["close"].iloc[0])
-        expiry = sorted(inst_df[inst_df["name"] == "NIFTY"]["expiry"].unique())[0]
-        contracts_df = get_contracts(inst_df, spot, expiry)
-        global SELECTED_CONTRACTS
-        SELECTED_CONTRACTS = contracts_df.to_dict("records")
-        keys = contracts_df["instrument_key"].tolist()
-        start_websocket(access_token, keys)
-        st.success(f"Tracking {len(keys)} contracts")
 
-if SELECTED_CONTRACTS:
-    st.subheader("Live Greeks")
-    greek_data = []
+# =========================
+# FUNCTION: SELECT CONTRACTS
+# =========================
+def select_contracts(upstox_obj, symbol="NIFTY", expiry=None):
+    global SELECTED_CONTRACTS
+    atm = get_atm_strike(upstox_obj, symbol)
+    strikes = [atm + i * 50 for i in range(-5, 6)]  # 5 ITM + 5 OTM
+    contracts = upstox_obj.get_master_contract('NSE_FO')
+    selected = [
+        c for c in contracts.values()
+        if c.symbol == symbol and c.expiry == expiry and c.strike_price in strikes
+    ]
+    SELECTED_CONTRACTS = selected
+
+
+# =========================
+# FUNCTION: FETCH GREEKS DATA
+# =========================
+def fetch_greeks(upstox_obj):
+    global STOP_FETCHING
+    while not STOP_FETCHING:
+        now = dt.datetime.now().time()
+        if dt.time(9, 20) <= now <= dt.time(15, 20):
+            data = []
+            for c in SELECTED_CONTRACTS:
+                try:
+                    q = upstox_obj.get_live_feed(f"{c.exchange}|{c.token}", "full")
+                    data.append({
+                        "Symbol": c.symbol,
+                        "Strike": c.strike_price,
+                        "Type": c.instrument_type,
+                        "LTP": q.get('ltp', np.nan),
+                        "IV": q.get('impliedVolatility', np.nan),
+                        "Delta": q.get('delta', np.nan),
+                        "Gamma": q.get('gamma', np.nan),
+                        "Theta": q.get('theta', np.nan),
+                        "Vega": q.get('vega', np.nan)
+                    })
+                except Exception as e:
+                    print("Error fetching:", e)
+            if data:
+                st.session_state["greeks_df"] = pd.DataFrame(data)
+        time.sleep(FEED_INTERVAL)
+
+
+# =========================
+# STREAMLIT UI
+# =========================
+st.title("📈 Live NIFTY Option Greeks Dashboard")
+token = st.text_input("Enter your Upstox Access Token:", type="password")
+
+if token:
+    # Initialize Upstox
+    u = init_upstox(token)
+
+    # Fetch expiries
+    if not EXPIRY_LIST:
+        EXPIRY_LIST = get_expiries(u)
+        st.session_state["selected_expiry"] = EXPIRY_LIST[0]
+
+    # Expiry selection
+    expiry = st.selectbox("Select Expiry", EXPIRY_LIST, index=0)
+    st.session_state["selected_expiry"] = expiry
+
+    # Auto-select contracts at 9:16 AM daily
     now = dt.datetime.now().time()
-    if dt.time(9,20) <= now <= dt.time(15,20):
-        for c in SELECTED_CONTRACTS:
-            symbol = c["tradingsymbol"]
-            price = LIVE_DATA.get(c["instrument_key"], c["close"])
-            S = price
-            K = c["strike"]
-            expiry_date = parser.parse(c["expiry"])
-            T = max((expiry_date - dt.datetime.now()).days / 365.0, 0.0001)
-            sigma = 0.2  # Assume fixed volatility
-            r = 0.05
-            opt_type = "call" if c["instrument_type"] == "CE" else "put"
-            delta, gamma, theta, vega = bs_greeks(S, K, T, r, sigma, opt_type)
-            greek_data.append([symbol, price, delta, gamma, theta, vega])
-        df = pd.DataFrame(greek_data, columns=["Symbol", "LTP", "Delta", "Gamma", "Theta", "Vega"])
-        st.dataframe(df)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["Symbol"], y=df["Delta"], mode="lines+markers", name="Delta"))
-        fig.add_trace(go.Scatter(x=df["Symbol"], y=df["Gamma"], mode="lines+markers", name="Gamma"))
-        fig.add_trace(go.Scatter(x=df["Symbol"], y=df["Theta"], mode="lines+markers", name="Theta"))
-        fig.add_trace(go.Scatter(x=df["Symbol"], y=df["Vega"], mode="lines+markers", name="Vega"))
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Market closed or outside tracking time (9:20-15:20).")
+    if dt.time(9, 16) <= now <= dt.time(9, 20):
+        select_contracts(u, expiry=expiry)
+
+    # Start background thread
+    if "fetch_thread" not in st.session_state:
+        st.session_state["fetch_thread"] = threading.Thread(target=fetch_greeks, args=(u,), daemon=True)
+        st.session_state["fetch_thread"].start()
+
+    # Display live data
+    placeholder = st.empty()
+    while True:
+        if "greeks_df" in st.session_state:
+            df = st.session_state["greeks_df"]
+            placeholder.dataframe(df, use_container_width=True)
+        time.sleep(1)
