@@ -1,200 +1,113 @@
 import os
-import json
-import time
-import threading
 import requests
 import streamlit as st
-from datetime import datetime
-from upstox_api.api import Upstox
-from feeds_proto import MarketDataFeedV3_pb2 as pb
-from websocket import create_connection
-import random
+import pandas as pd
+from streamlit_autorefresh import st_autorefresh
 
-# ------------------------
-# CONFIG
-# ------------------------
-UPSTOX_API_KEY = os.getenv("UPSTOX_API_KEY")
-UPSTOX_API_SECRET = os.getenv("UPSTOX_API_SECRET")
-REDIRECT_URI = os.getenv("REDIRECT_URI", "https://your-redirect-url.com")
-TOKEN_FILE = "access_token.json"
-INSTRUMENTS_FILE = "instruments.json"
-MOCK_MODE = True  # Toggle this to False for live market
+# 1. Setup
+API_KEY = os.getenv("UPSTOX_API_KEY")
+REDIRECT_URI = os.getenv("UPSTOX_REDIRECT_URI")
+AUTH_URL = f"https://api.upstox.com/v2/login/authorization/dialog?client_id={API_KEY}&redirect_uri={REDIRECT_URI}&response_type=code"
 
-# ------------------------
-# TOKEN HANDLING
-# ------------------------
-def save_token(token_data):
-    with open(TOKEN_FILE, "w") as f:
-        json.dump(token_data, f)
+st.set_page_config(page_title="Options Dashboard", layout="wide")
+st_autorefresh(interval=30_000, key="refresh")
+st.sidebar.info("🔄 Auto-refresh every 30 seconds")
 
-def load_token():
-    if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "r") as f:
-            return json.load(f)
-    return None
+# 2. Authenticate
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
 
-# ------------------------
-# INSTRUMENT FETCH
-# ------------------------
-def fetch_instruments(up):
-    """Fetch and save instrument master list."""
-    resp = up.get_master_contract("NSE_FO")
-    instruments = []
-    for scrip, details in resp.items():
-        instruments.append(details)
-    with open(INSTRUMENTS_FILE, "w") as f:
-        json.dump(instruments, f)
-    return instruments
+st.title("🔹 Options Dashboard")
+if not st.session_state.access_token:
+    st.markdown(f"[Login to Upstox]({AUTH_URL})")
+    code = st.text_input("Enter the `code` from the redirect URL")
+    if st.button("Get Access Token") and code:
+        resp = requests.post(
+            "https://api.upstox.com/v2/login/authorization/token",
+            data={
+                "code": code,
+                "client_id": API_KEY,
+                "client_secret": os.getenv("UPSTOX_API_SECRET"),
+                "redirect_uri": REDIRECT_URI,
+                "grant_type": "authorization_code"
+            },
+        )
+        data = resp.json()
+        st.session_state.access_token = data.get("access_token")
+        if st.session_state.access_token:
+            st.success("Access token saved!")
 
-def load_instruments():
-    if os.path.exists(INSTRUMENTS_FILE):
-        with open(INSTRUMENTS_FILE, "r") as f:
-            return json.load(f)
-    return []
+# 3. Helper Functions
+def get_headers():
+    return {"Authorization": f"Bearer {st.session_state.access_token}", "Accept": "application/json"}
 
-def get_today_contracts(instruments):
-    """Filter contracts for today."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    expiries = sorted({i['expiry'] for i in instruments if 'expiry' in i})
-    contracts_today = [i for i in instruments if i.get('expiry') == expiries[0]]
-    return today, expiries[0], contracts_today[:5]  # pick 5 contracts
+@st.cache_data(ttl=30)
+def get_spot():
+    r = requests.get("https://api.upstox.com/v2/market/quote", headers=get_headers(), params={"symbol":"NSE_INDEX|Nifty 50"})
+    return float(r.json()["data"]["NSE_INDEX|Nifty 50"]["last_price"])
 
-# ------------------------
-# MOCK DATA GENERATOR
-# ------------------------
-def generate_mock_data(contracts):
-    """Simulate Greeks values for testing."""
-    mock_data = {}
-    for c in contracts:
-        mock_data[c['token']] = {
-            "ltp": round(random.uniform(100, 1000), 2),
-            "delta": round(random.uniform(-1, 1), 3),
-            "gamma": round(random.uniform(0, 0.1), 4),
-            "vega": round(random.uniform(0, 1), 3),
-            "theta": round(random.uniform(-1, 0), 3)
-        }
-    return mock_data
+@st.cache_data(ttl=300)
+def get_expiries():
+    r = requests.get("https://api.upstox.com/v2/option/contract", headers=get_headers(), params={"symbol":"NIFTY50"})
+    exps = sorted({c["expiryDate"] for c in r.json()["data"]})
+    return exps[:4]
 
-# ------------------------
-# WEBSOCKET FETCHER
-# ------------------------
-class MarketDataFetcher:
-    def __init__(self, contracts):
-        self.contracts = contracts
-        self.ws_url = "wss://api-v2.upstox.com/feed/market-data-feed/v3"
-        self.ws = None
-        self.data = {}
+def get_contracts(expiry):
+    r = requests.get("https://api.upstox.com/v2/option/contract", headers=get_headers(), params={"symbol":"NIFTY50","expiryDate":expiry})
+    data = r.json()["data"]
+    spot = get_spot()
+    strikes = sorted({float(c["strikePrice"]) for c in data})
+    atm = min(strikes, key=lambda x: abs(x - spot))
+    idx = strikes.index(atm)
+    sel = strikes[max(0,idx-5):idx+6]
+    return [c for c in data if float(c["strikePrice"]) in sel], spot, atm
 
-    def connect(self):
-        try:
-            self.ws = create_connection(self.ws_url)
-            st.session_state["status"] = "WebSocket Connected"
-            self.subscribe()
-        except Exception as e:
-            st.error(f"WebSocket connection failed: {e}")
+def fetch_greeks(keys):
+    iks = ",".join(keys)
+    r = requests.get(f"https://api.upstox.com/v3/market-quote/option-greek?instrument_key={iks}", headers=get_headers())
+    return r.json().get("data", {})
 
-    def subscribe(self):
-        payload = {
-            "guid": "some-guid",
-            "method": "sub",
-            "data": {
-                "mode": "full",
-                "instrumentKeys": [c['token'] for c in self.contracts]
-            }
-        }
-        try:
-            self.ws.send(json.dumps(payload))
-        except Exception as e:
-            st.error(f"Failed to subscribe: {e}")
+# 4. Main Logic
+if st.session_state.access_token:
+    st.subheader("Today's Options Greek Snapshot")
+    exps = get_expiries()
+    expiry = st.selectbox("Select Expiry", exps)
 
-    def listen(self):
-        while True:
-            try:
-                msg = self.ws.recv()
-                self.handle_message(msg)
-            except Exception as e:
-                print("Error in websocket loop:", e)
-                break
+    if expiry:
+        contracts, spot, atm = get_contracts(expiry)
+        st.write(f" Spot: {spot} | ATM Strike: {atm}")
 
-    def handle_message(self, msg):
-        try:
-            pb_msg = pb.FeedResponse()
-            pb_msg.ParseFromString(msg)
-            for feed in pb_msg.feeds:
-                self.data[feed.instrumentKey] = {
-                    "ltp": feed.marketFF.marketPrice,
-                    "delta": getattr(feed, "delta", None),
-                    "gamma": getattr(feed, "gamma", None),
-                    "vega": getattr(feed, "vega", None),
-                    "theta": getattr(feed, "theta", None)
-                }
-        except Exception as e:
-            print("Failed to parse protobuf:", e)
+        if contracts:
+            symbols = [c["instrument_key"] for c in contracts]
+            greeks_data = fetch_greeks(symbols)
+            rows = []
+            for c in contracts:
+                key = c["instrument_key"]
+                g = greeks_data.get(key, {})
+                rows.append({
+                    "Symbol": key,
+                    "Strike": float(c["strikePrice"]),
+                    "Type": c["instrument_type"],
+                    "LTP": g.get("last_price"),
+                    "IV": g.get("iv"),
+                    "Delta": g.get("delta"),
+                    "Gamma": g.get("gamma"),
+                    "Theta": g.get("theta"),
+                    "Vega": g.get("vega"),
+                    "OI": g.get("oi"),
+                })
+            df = pd.DataFrame(rows).sort_values("Strike").reset_index(drop=True)
 
-    def start(self):
-        self.connect()
-        threading.Thread(target=self.listen, daemon=True).start()
+            def highlight_atm(r):
+                return ["background-color: yellow"]*len(r) if abs(r["Strike"]-atm)<0.5 else [""]*len(r)
 
-# ------------------------
-# STREAMLIT UI
-# ------------------------
-st.set_page_config(page_title="Upstox Options Greeks", layout="wide")
-st.title("📈 Real-Time Options Greeks Dashboard")
+            calls = df[df["Type"]=="CE"]
+            puts = df[df["Type"]=="PE"]
 
-# Load token
-token = load_token()
-if not token:
-    st.warning("⚠️ No access token found. Please generate and save token manually.")
-else:
-    try:
-        up = Upstox(UPSTOX_API_KEY, token["access_token"])
-        st.success("✅ Access token loaded.")
-    except Exception as e:
-        st.error(f"Failed to authenticate: {e}")
-        st.stop()
+            st.markdown("###  Calls")
+            st.dataframe(calls.style.apply(highlight_atm,axis=1), use_container_width=True)
 
-    # Load or fetch instruments
-    instruments = load_instruments()
-    if not instruments:
-        st.info("Fetching instruments...")
-        instruments = fetch_instruments(up)
-        st.success("Instrument data fetched.")
-
-    # Get today's contracts
-    today, expiry, selected_contracts = get_today_contracts(instruments)
-    st.subheader("Today's Selection & Latest Values")
-    st.write(f"**Date:** {today}")
-    st.write(f"**Nearest Expiry:** {expiry}")
-    st.table(selected_contracts)
-
-    # Start data feed
-    if "fetcher" not in st.session_state:
-        fetcher = MarketDataFetcher(selected_contracts)
-        if not MOCK_MODE:
-            fetcher.start()
-        st.session_state["fetcher"] = fetcher
-        st.session_state["status"] = "Live Mode" if not MOCK_MODE else "Mock Mode"
-    else:
-        fetcher = st.session_state["fetcher"]
-
-    # Display Greeks
-    st.subheader("Live Greeks")
-    if MOCK_MODE:
-        data = generate_mock_data(selected_contracts)
-    else:
-        data = fetcher.data
-
-    if data:
-        rows = []
-        for token, vals in data.items():
-            rows.append({
-                "Token": token,
-                "LTP": vals.get("ltp"),
-                "Delta": vals.get("delta"),
-                "Gamma": vals.get("gamma"),
-                "Vega": vals.get("vega"),
-                "Theta": vals.get("theta")
-            })
-        st.dataframe(rows)
-    else:
-        st.info("Waiting for live data...")
+            st.markdown("###  Puts")
+            st.dataframe(puts.style.apply(highlight_atm,axis=1), use_container_width=True)
+        else:
+            st.warning("No contracts found for this expiry.")
