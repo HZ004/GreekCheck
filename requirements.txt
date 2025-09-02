@@ -9,6 +9,4 @@ matplotlib
 pytz
 scipy
 streamlit-autorefresh
-protobuf
-grpcio
-grpcio-tools
+
