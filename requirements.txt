@@ -11,3 +11,4 @@ scipy
 streamlit-autorefresh
 grpcio
 grpcio-tools
+upstox-python-sdk
