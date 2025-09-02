@@ -1,7 +1,11 @@
 streamlit>=1.20
-streamlit-autorefresh
 requests
+websocket-client
+googleapis-common-protos
+protobuf>=4.21.0
 pandas
 numpy
 matplotlib
 pytz
+scipy
+streamlit-autorefresh
