@@ -1,113 +1,205 @@
-import os
-import requests
 import streamlit as st
+import requests
 import pandas as pd
-from streamlit_autorefresh import st_autorefresh
+import numpy as np
+import plotly.express as px
+from datetime import datetime, timedelta, time
+from scipy.stats import norm
 
-# 1. Setup
-API_KEY = os.getenv("UPSTOX_API_KEY")
-REDIRECT_URI = os.getenv("UPSTOX_REDIRECT_URI")
-AUTH_URL = f"https://api.upstox.com/v2/login/authorization/dialog?client_id={API_KEY}&redirect_uri={REDIRECT_URI}&response_type=code"
+# --- User Inputs ---
+st.title("Upstox Options Greeks Dashboard")
+upstox_token = st.text_input("Paste Upstox Access Token", type="password")
 
-st.set_page_config(page_title="Options Dashboard", layout="wide")
-st_autorefresh(interval=30_000, key="refresh")
-st.sidebar.info("🔄 Auto-refresh every 30 seconds")
+# Constants
+EXCHANGE = "NSE_INDEX"
+SYMBOL = "NIFTY"  # Change to BANKNIFTY if needed
+STRIKES_TO_PICK = 5  # Each ITM and OTM
+API_BASE = "https://api.upstox.com"
+option_contracts_url = f"{API_BASE}/v3/market/option-contacts"
+option_greeks_url = f"{API_BASE}/v3/market-quote/option-greek"
+ltp_url = f"{API_BASE}/v3/market-quote/ltp"
+HEADERS = {"Authorization": f"Bearer {upstox_token}"}
 
-# 2. Authenticate
-if "access_token" not in st.session_state:
-    st.session_state.access_token = None
+# --- Helper Functions ---
+def get_market_expiries_and_strikes():
+    '''Fetch option contracts (strikes + expiries) from Upstox'''
+    resp = requests.get(option_contracts_url, headers=HEADERS, params={"exchange": EXCHANGE, "symbol": SYMBOL})
+    contracts = resp.json()["contracts"]
+    # Filter by expiry: selecting the nearest by default
+    expiry_dates = sorted(set(c["expiry"] for c in contracts))
+    # UI for override expiry
+    expiry = st.selectbox("Expiry date", expiry_dates)
+    strikes = sorted(set(c["strike"] for c in contracts if c["expiry"] == expiry))
+    return strikes, expiry
 
-st.title("🔹 Options Dashboard")
-if not st.session_state.access_token:
-    st.markdown(f"[Login to Upstox]({AUTH_URL})")
-    code = st.text_input("Enter the `code` from the redirect URL")
-    if st.button("Get Access Token") and code:
-        resp = requests.post(
-            "https://api.upstox.com/v2/login/authorization/token",
-            data={
-                "code": code,
-                "client_id": API_KEY,
-                "client_secret": os.getenv("UPSTOX_API_SECRET"),
-                "redirect_uri": REDIRECT_URI,
-                "grant_type": "authorization_code"
-            },
-        )
+def get_spot_price():
+    '''Fetch spot price (ATM reference) from Upstox'''
+    params = {"exchange": EXCHANGE, "symbol": SYMBOL}
+    resp = requests.get(ltp_url, headers=HEADERS, params=params)
+    data = resp.json()
+    return float(data["ltp"])
+
+def select_strikes(strikes, atm, n=STRIKES_TO_PICK):
+    '''Choose ITM/OTM strikes for CE & PE'''
+    strikes = np.array(strikes)
+    idx_atm = (np.abs(strikes - atm)).argmin()
+    ce_itm = strikes[max(0, idx_atm-n):idx_atm][::-1]
+    ce_otm = strikes[idx_atm+1:idx_atm+1+n]
+    pe_itm = strikes[idx_atm+1:idx_atm+1+n]
+    pe_otm = strikes[max(0, idx_atm-n):idx_atm][::-1]
+    return ce_itm, ce_otm, pe_itm, pe_otm
+
+def get_greeks(strike, side, expiry):
+    '''Fetch Greeks from Upstox or compute via Black-Scholes'''
+    instrument_type = "CE" if side == "call" else "PE"
+    params = {
+        "exchange": EXCHANGE,
+        "symbol": SYMBOL,
+        "expiry": expiry,
+        "strike": strike,
+        "instrument_type": instrument_type,
+    }
+    try:
+        resp = requests.get(option_greeks_url, headers=HEADERS, params=params, timeout=3)
         data = resp.json()
-        st.session_state.access_token = data.get("access_token")
-        if st.session_state.access_token:
-            st.success("Access token saved!")
+        if all(k in data for k in ["delta", "gamma", "vega", "theta", "iv"]):
+            return {k: data[k] for k in ["delta", "gamma", "vega", "theta", "iv"]}
+    except Exception:
+        pass
+    # Fallback: get LTP and compute Greeks locally
+    option_price = get_option_price(strike, side, expiry)
+    spot = get_spot_price()
+    time_to_expiry = get_years_to_expiry(expiry)
+    iv = estimate_iv(option_price, spot, strike, time_to_expiry, side)
+    greeks = black_scholes_greeks(spot, strike, time_to_expiry, iv, side)
+    greeks["iv"] = iv
+    return greeks
 
-# 3. Helper Functions
-def get_headers():
-    return {"Authorization": f"Bearer {st.session_state.access_token}", "Accept": "application/json"}
+def get_option_price(strike, side, expiry):
+    '''Fetch LTP for option'''
+    instrument_type = "CE" if side == "call" else "PE"
+    params = {
+        "exchange": EXCHANGE,
+        "symbol": SYMBOL,
+        "expiry": expiry,
+        "strike": strike,
+        "instrument_type": instrument_type,
+    }
+    resp = requests.get(ltp_url, headers=HEADERS, params=params)
+    data = resp.json()
+    return float(data["ltp"])
 
-@st.cache_data(ttl=30)
-def get_spot():
-    r = requests.get("https://api.upstox.com/v2/market/quote", headers=get_headers(), params={"symbol":"NSE_INDEX|Nifty 50"})
-    return float(r.json()["data"]["NSE_INDEX|Nifty 50"]["last_price"])
+def get_years_to_expiry(expiry):
+    '''Convert expiry to year fraction'''
+    expiry_dt = datetime.strptime(expiry, "%Y-%m-%d")
+    now = datetime.now()
+    return max(1e-6, (expiry_dt - now).days / 365.0)
 
-@st.cache_data(ttl=300)
-def get_expiries():
-    r = requests.get("https://api.upstox.com/v2/option/contract", headers=get_headers(), params={"symbol":"NIFTY50"})
-    exps = sorted({c["expiryDate"] for c in r.json()["data"]})
-    return exps[:4]
+def estimate_iv(option_price, spot, strike, t, side):
+    '''Naive estimation via Black-Scholes implied volatility inversion'''
+    # For simplicity, fixed r = 0.05
+    from scipy.optimize import root_scalar
+    def bs_price(iv):
+        return black_scholes_price(spot, strike, t, 0.05, iv, side)
+    try:
+        result = root_scalar(lambda iv: bs_price(iv) - option_price, bracket=[0.01, 1.0])
+        return float(result.root) if result.converged else 0.2
+    except Exception:
+        return 0.2
 
-def get_contracts(expiry):
-    r = requests.get("https://api.upstox.com/v2/option/contract", headers=get_headers(), params={"symbol":"NIFTY50","expiryDate":expiry})
-    data = r.json()["data"]
-    spot = get_spot()
-    strikes = sorted({float(c["strikePrice"]) for c in data})
-    atm = min(strikes, key=lambda x: abs(x - spot))
-    idx = strikes.index(atm)
-    sel = strikes[max(0,idx-5):idx+6]
-    return [c for c in data if float(c["strikePrice"]) in sel], spot, atm
+def black_scholes_price(S, K, T, r, sigma, side):
+    '''Black-Scholes price formula'''
+    d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    if side == "call":
+        return S * norm.cdf(d1) - K * np.exp(-r*T) * norm.cdf(d2)
+    else:
+        return K * np.exp(-r*T) * norm.cdf(-d2) - S * norm.cdf(-d1)
 
-def fetch_greeks(keys):
-    iks = ",".join(keys)
-    r = requests.get(f"https://api.upstox.com/v3/market-quote/option-greek?instrument_key={iks}", headers=get_headers())
-    return r.json().get("data", {})
+def black_scholes_greeks(S, K, T, sigma, side):
+    '''Greeks: delta, gamma, vega, theta'''
+    r = 0.05
+    d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    delta = norm.cdf(d1) if side == "call" else -norm.cdf(-d1)
+    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
+    vega = S * norm.pdf(d1) * np.sqrt(T) / 100
+    theta_call = (-S * norm.pdf(d1) * sigma/(2*np.sqrt(T)) - r*K*np.exp(-r*T) * norm.cdf(d2)) / 365
+    theta_put = (-S * norm.pdf(d1) * sigma/(2*np.sqrt(T)) + r*K*np.exp(-r*T) * norm.cdf(-d2)) / 365
+    theta = theta_call if side == "call" else theta_put
+    return {"delta": delta, "gamma": gamma, "vega": vega, "theta": theta}
 
-# 4. Main Logic
-if st.session_state.access_token:
-    st.subheader("Today's Options Greek Snapshot")
-    exps = get_expiries()
-    expiry = st.selectbox("Select Expiry", exps)
 
-    if expiry:
-        contracts, spot, atm = get_contracts(expiry)
-        st.write(f" Spot: {spot} | ATM Strike: {atm}")
+# --- Polling & Data Storage ---
+if not upstox_token:
+    st.info("Paste your Upstox access token to begin")
+    st.stop()
 
-        if contracts:
-            symbols = [c["instrument_key"] for c in contracts]
-            greeks_data = fetch_greeks(symbols)
-            rows = []
-            for c in contracts:
-                key = c["instrument_key"]
-                g = greeks_data.get(key, {})
-                rows.append({
-                    "Symbol": key,
-                    "Strike": float(c["strikePrice"]),
-                    "Type": c["instrument_type"],
-                    "LTP": g.get("last_price"),
-                    "IV": g.get("iv"),
-                    "Delta": g.get("delta"),
-                    "Gamma": g.get("gamma"),
-                    "Theta": g.get("theta"),
-                    "Vega": g.get("vega"),
-                    "OI": g.get("oi"),
-                })
-            df = pd.DataFrame(rows).sort_values("Strike").reset_index(drop=True)
+today = datetime.now().date()
+start_poll = datetime.combine(today, time(9,20))
+end_poll = datetime.combine(today, time(15,20))
+strikes, expiry = get_market_expiries_and_strikes()
+spot = get_spot_price()
+ce_itm, ce_otm, pe_itm, pe_otm = select_strikes(strikes, spot)
 
-            def highlight_atm(r):
-                return ["background-color: yellow"]*len(r) if abs(r["Strike"]-atm)<0.5 else [""]*len(r)
+# Store option keys and dataframes in session state
+if "strike_set" not in st.session_state:
+    if datetime.now().time() >= time(9,16):
+        st.session_state.strike_set = {
+            "CE_ITM": list(ce_itm),
+            "CE_OTM": list(ce_otm),
+            "PE_ITM": list(pe_itm),
+            "PE_OTM": list(pe_otm)
+        }
+    else:
+        st.info("Strikes will be selected/fixed at 09:16 IST each day.")
 
-            calls = df[df["Type"]=="CE"]
-            puts = df[df["Type"]=="PE"]
+strike_dict = st.session_state.get("strike_set", {})
+polling_active = start_poll.time() <= datetime.now().time() <= end_poll.time()
 
-            st.markdown("###  Calls")
-            st.dataframe(calls.style.apply(highlight_atm,axis=1), use_container_width=True)
+poll_interval = 1  # seconds
+poll_time = st.empty()
+data = st.session_state.get("greek_data", pd.DataFrame())
 
-            st.markdown("###  Puts")
-            st.dataframe(puts.style.apply(highlight_atm,axis=1), use_container_width=True)
+if polling_active:
+    poll_time.info(f"Polling Upstox an option-greeks every {poll_interval}s")
+    rows = []
+    for side in ["call", "put"]:
+        for itm_key, otm_key in [("CE_ITM", "CE_OTM"), ("PE_ITM", "PE_OTM")]:
+            strikes_selected = strike_dict.get(itm_key, []) + strike_dict.get(otm_key, [])
+            for strike in strikes_selected:
+                greeks = get_greeks(strike, side, expiry)
+                entry = {
+                    "Timestamp": datetime.now(),
+                    "Strike": strike,
+                    "Type": "CE" if side == "call" else "PE",
+                    **greeks
+                }
+                rows.append(entry)
+    if len(rows) > 0:
+        df = pd.DataFrame(rows)
+        if data is not None and not data.empty:
+            data = pd.concat([data, df], ignore_index=True)
         else:
-            st.warning("No contracts found for this expiry.")
+            data = df
+        st.session_state["greek_data"] = data
+
+# --- UI: Display Tables/Charts ---
+if data is not None and not data.empty:
+    st.dataframe(data.tail(50))
+    # Plot Greeks over time
+    for greek in ["delta", "gamma", "vega", "theta", "iv"]:
+        fig = px.line(
+            data,
+            x="Timestamp",
+            y=greek,
+            color="Strike",
+            title=f"{greek.capitalize()} over time"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    st.experimental_rerun()  # refresh every second
+
+else:
+    st.info("Waiting for option Greek data. Market polling is live from 09:20 to 15:20 IST.")
+
+# --- End of file ---
