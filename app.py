@@ -15,7 +15,7 @@ EXCHANGE = "NSE_INDEX"
 SYMBOL = "NIFTY"  # Change to BANKNIFTY if needed
 STRIKES_TO_PICK = 5  # Each ITM and OTM
 API_BASE = "https://api.upstox.com"
-option_contracts_url = f"{API_BASE}/v3/market/option-contacts"
+option_contracts_url = f"{API_BASE}/v3/market/option-contracts"
 option_greeks_url = f"{API_BASE}/v3/market-quote/option-greek"
 ltp_url = f"{API_BASE}/v3/market-quote/ltp"
 HEADERS = {"Authorization": f"Bearer {upstox_token}"}
@@ -24,6 +24,7 @@ HEADERS = {"Authorization": f"Bearer {upstox_token}"}
 def get_market_expiries_and_strikes():
     '''Fetch option contracts (strikes + expiries) from Upstox'''
     resp = requests.get(option_contracts_url, headers=HEADERS, params={"exchange": EXCHANGE, "symbol": SYMBOL})
+    st.write("Raw API response:", resp.text)
     contracts = resp.json()["contracts"]
     # Filter by expiry: selecting the nearest by default
     expiry_dates = sorted(set(c["expiry"] for c in contracts))
