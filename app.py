@@ -160,7 +160,8 @@ if "strike_df" not in st.session_state or st.session_state.get("strikes_for_day"
 
 
 display_df = st.session_state["strike_df"]
-st.table(display_df[["option_type", "strike_price", "expiry", "instrument_key"]].sort_values("option_type"))
+st.table(display_df[["instrument_type", "strike_price", "expiry", "instrument_key"]].sort_values("instrument_type"))
+
 keys_monitored = list(display_df.instrument_key)
 
 # --- Live Data Polling ---
