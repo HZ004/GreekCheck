@@ -1,4 +1,4 @@
-
+import time
 from streamlit_autorefresh import st_autorefresh
 import streamlit as st
 import requests
@@ -167,35 +167,51 @@ st.table(display_df[["instrument_type", "strike_price", "expiry", "instrument_ke
 keys_monitored = list(display_df.instrument_key)
 
 # --- Live Data Polling ---
+
+# Create placeholders outside the loop
+table_placeholder = st.empty()
+charts_placeholder = st.empty()
+
 if start_poll <= now <= end_poll:
-    # Auto refresh every 1 second, get the refresh count
-    count = st_autorefresh(interval=1000, limit=None, key="greeks_poll")
-    placeh = st.empty()
+    # Initialize or retrieve time series storage
     datalist = st.session_state.get("greek_ts", [])
 
-    # Poll APIs (Greeks and LTP)
-    greek_data = poll_greeks_ltp(keys_monitored)
-    timestamp = datetime.now()
-    # Assemble time-series row
-    row = {"timestamp": timestamp}
-    for i, contract in display_df.iterrows():
-        ikey = contract["instrument_key"]
-        gd = greek_data.get(ikey, {})
-        ltp = gd.get("ltp", np.nan)
-        row.update({f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": (
-            gd[k] if gd.get(k) not in [None, ""] else
-            fallback_compute(contract, spot_price, ltp).get(k, np.nan))
-            for k in ["delta","gamma","vega","theta","iv"]})
-    datalist.append(row)
-    st.session_state["greek_ts"] = datalist
+    # Run a loop for live polling and updating
+    for _ in range(1000):  # Loop count can be adjusted or replaced by while True for infinite
+        now = datetime.now()
 
-    # Display DataFrame and charts
-    df = pd.DataFrame(datalist)
-    st.dataframe(df.tail(50))
-    for metric in ["delta", "gamma", "vega", "theta", "iv"]:
-        chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
-        fig = px.line(df, x="timestamp", y=chosen, title=f"{metric.upper()} Time Series")
-        placeh.plotly_chart(fig, use_container_width=True)
+        # Poll Upstox for Greeks and LTP (bulk)
+        greek_data = poll_greeks_ltp(keys_monitored)
+        timestamp = now
+
+        # Build a new row with current data
+        row = {"timestamp": timestamp}
+        for i, contract in display_df.iterrows():
+            ikey = contract["instrument_key"]
+            gd = greek_data.get(ikey, {})
+            ltp = gd.get("ltp", np.nan)
+            row.update({f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": (
+                gd[k] if gd.get(k) not in [None, ""] else
+                fallback_compute(contract, spot_price, ltp).get(k, np.nan))
+                for k in ["delta", "gamma", "vega", "theta", "iv"]})
+
+        # Append new row to stored time series
+        datalist.append(row)
+        st.session_state["greek_ts"] = datalist
+
+        # Convert to dataframe for display
+        df = pd.DataFrame(datalist)
+
+        # Update the table in place
+        table_placeholder.dataframe(df.tail(50))
+
+        # Update charts in place
+        for metric in ["delta", "gamma", "vega", "theta", "iv"]:
+            chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
+            fig = px.line(df, x="timestamp", y=chosen, title=f"{metric.upper()} Time Series")
+            charts_placeholder.plotly_chart(fig, use_container_width=True)
+
+        time.sleep(1)  # Wait before next poll/update
 
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
