@@ -124,12 +124,18 @@ def fallback_compute(contract, spot, ltp):
     return black_scholes_greeks(spot, K, T, sigma, option_type)
 
 # ----- Session State/buffering -----
-st.sidebar.info("Strikes are fixed at 09:16 each day.")
-now = datetime.now()
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
+
+now = datetime.now(IST)
 today = now.date()
-start_poll = datetime.combine(today, time(9,20))
-end_poll = datetime.combine(today, time(15,20))
-strike_lock_time = datetime.combine(today, time(9,16))
+strike_lock_time = datetime.combine(today, time(9, 16), IST)
+
+st.sidebar.info("Strikes are fixed at 09:16 each day.")
+
+start_poll = datetime.combine(today, time(9,20), IST)
+end_poll = datetime.combine(today, time(15,20), IST)
 
 contract_df = fetch_option_contracts()
 
