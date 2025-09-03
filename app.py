@@ -168,6 +168,8 @@ keys_monitored = list(display_df.instrument_key)
 
 # --- Live Data Polling ---
 if start_poll <= now <= end_poll:
+    # Auto refresh every 1 second, get the refresh count
+    count = st_autorefresh(interval=1000, limit=None, key="greeks_poll")
     placeh = st.empty()
     datalist = st.session_state.get("greek_ts", [])
 
@@ -178,7 +180,6 @@ if start_poll <= now <= end_poll:
     row = {"timestamp": timestamp}
     for i, contract in display_df.iterrows():
         ikey = contract["instrument_key"]
-        # Use API values, fallback to Black-Scholes if needed
         gd = greek_data.get(ikey, {})
         ltp = gd.get("ltp", np.nan)
         row.update({f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": (
@@ -187,14 +188,15 @@ if start_poll <= now <= end_poll:
             for k in ["delta","gamma","vega","theta","iv"]})
     datalist.append(row)
     st.session_state["greek_ts"] = datalist
+
     # Display DataFrame and charts
     df = pd.DataFrame(datalist)
     st.dataframe(df.tail(50))
-    for metric in ["delta","gamma","vega","theta","iv"]:
+    for metric in ["delta", "gamma", "vega", "theta", "iv"]:
         chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
         fig = px.line(df, x="timestamp", y=chosen, title=f"{metric.upper()} Time Series")
         placeh.plotly_chart(fig, use_container_width=True)
-    st.experimental_rerun()
+
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
 
