@@ -1,5 +1,5 @@
 
-
+from streamlit_autorefresh import st_autorefresh
 import streamlit as st
 import requests
 import pandas as pd
