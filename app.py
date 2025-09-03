@@ -69,7 +69,8 @@ def select_option_strikes(contract_df, spot, expiry, n=5):
     pe_itm = strikes[idx_atm+1:idx_atm+1+n]            # Puts, In-the-money
     pe_otm = strikes[max(0, idx_atm-n):idx_atm][::-1]  # Puts, Out-the-money
     # Gather instrument_keys for each side
-    contract = lambda strike, opt_type: df_expiry[(df_expiry["strike_price"]==strike) & (df_expiry["option_type"]==opt_type)].iloc
+    contract = lambda strike, inst_type: df_expiry[(df_expiry["strike_price"] == strike) & (df_expiry["instrument_type"] == inst_type)].iloc[0]
+
     selection = []
     for strike in ce_itm: selection.append(contract(strike, "CE"))
     for strike in ce_otm: selection.append(contract(strike, "CE"))
@@ -138,7 +139,6 @@ start_poll = datetime.combine(today, time(9,20), IST)
 end_poll = datetime.combine(today, time(15,20), IST)
 
 contract_df = fetch_option_contracts()
-st.write("Contract DataFrame Columns:", contract_df.columns.tolist())
 
 # Use underlying instrument_key ("NSE_INDEX|Nifty 50") for spot price
 spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
