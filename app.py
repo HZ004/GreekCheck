@@ -45,11 +45,12 @@ def fetch_option_contracts():
 def fetch_spot_price(spot_instrument_key):
     r = requests.get(API_LTP, headers=HEADERS, params={"instrument_key": spot_instrument_key})
     response = r.json()
-    # The spot price field nesting may vary; this parses current Upstox structure
     if "data" in response and spot_instrument_key in response["data"]:
-        return float(response["data"][spot_instrument_key]["ltp"])
+        # Use last_price, not ltp, based on actual API response
+        return float(response["data"][spot_instrument_key].get("last_price", 0))
     st.error(f"Error fetching spot price: {response}")
     st.stop()
+
 
 def get_nearest_expiry(contract_df):
     today = datetime.now().date()
