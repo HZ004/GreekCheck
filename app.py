@@ -7,6 +7,9 @@ import numpy as np
 import plotly.express as px
 from datetime import datetime, timedelta, time
 from scipy.stats import norm
+from zoneinfo import ZoneInfo
+import io
+
 
 st.set_page_config(layout="wide")
 st.title("Upstox Live Options Greeks Dashboard")
@@ -96,7 +99,7 @@ def select_option_strikes(contract_df, spot, expiry, n=5):
     pe_atm = np.array([atm_strike])                        # Puts, At-the-money
     pe_otm = strikes[max(0, idx_atm - n):idx_atm][::-1]   # Puts, Out-of-the-money
 
-    # Combine strikes for calls and puts including ATM strikes
+    # Combine strikes for calls and puts, including ATM strikes
     ce_strikes = np.concatenate([ce_itm, ce_atm, ce_otm])
     pe_strikes = np.concatenate([pe_itm, pe_atm, pe_otm])
 
@@ -163,7 +166,6 @@ def fallback_compute(contract, spot, ltp):
     return black_scholes_greeks(spot, K, T, sigma, instrument_type)
 
 # ----- Session State/buffering -----
-from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -202,38 +204,7 @@ display_df = st.session_state["strike_df"]
 # Filter strikes divisible by 100 and sort by strike_price ascending
 filtered_df = display_df[display_df["strike_price"] % 100 == 0].sort_values(by=['instrument_type', 'strike_price'])
 
-# Prepare filtered DataFrame for display
-styled_df = filtered_df[["instrument_type", "strike_price", "expiry"]].copy()
-
-# Format columns
-styled_df["strike_price"] = styled_df["strike_price"].astype(int)
-styled_df["expiry"] = pd.to_datetime(styled_df["expiry"]).dt.strftime('%Y-%m-%d')
-
-# Rename columns for nicer headers
-styled_df = styled_df.rename(columns={
-    "instrument_type": "Option Type",
-    "strike_price": "Strike Price",
-    "expiry": "Expiry Date"
-})
-
-# Define row-wise styling based on Option Type
-def highlight_option_type(row):
-    if row["Option Type"] == "CE":
-        return ['background-color: #d0e7ff'] * len(row)  # Light blue
-    elif row["Option Type"] == "PE":
-        return ['background-color: #ffd6d6'] * len(row)  # Light red
-    else:
-        return [''] * len(row)
-
-# Display styled dataframe with fixed height and interactive features
-st.dataframe(
-    styled_df.style.apply(highlight_option_type, axis=1),
-    height=400,
-    use_container_width=True
-)
-
-
-# st.table(filtered_df[["instrument_type", "strike_price", "expiry"]])
+st.table(filtered_df[["instrument_type", "strike_price", "expiry"]])
 
 display_df = filtered_df
 keys_monitored = list(display_df.instrument_key)
@@ -286,6 +257,28 @@ if start_poll <= now <= end_poll:
 
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
+
+# After your live polling block and charts update code, add the download CSV button:
+
+if "greek_ts" in st.session_state and st.session_state["greek_ts"]:
+    # Prepare full Greeks DataFrame for download
+    full_df = pd.DataFrame(st.session_state["greek_ts"])
+
+    # Convert DataFrame to CSV in memory buffer
+    csv_buffer = io.StringIO()
+    full_df.to_csv(csv_buffer, index=False)
+    csv_bytes = csv_buffer.getvalue().encode()
+
+    # Download button for CSV
+    st.download_button(
+        label="Download Full Day Greeks CSV",
+        data=csv_bytes,
+        file_name=f"greeks_data_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv"
+    )
+else:
+    st.info("No Greeks data available yet for download.")
+
 
 st.caption("Uses Upstox official APIs. Token expires daily.")
 
