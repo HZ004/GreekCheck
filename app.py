@@ -142,13 +142,15 @@ show_spot = st.markdown(f"**Spot Price:** {spot_price}")
 
 # Fix strikes at 09:16 IST, update once per day
 if "strike_df" not in st.session_state or st.session_state.get("strikes_for_day") != (str(today), expiry):
-    if now >= strike_lock_time:
+    if now < strike_lock_time:
+        st.info("Waiting for strike selection at 09:16 IST…")
+        st.stop()
+    else:
+        # After 09:16, select strikes immediately on startup, using current spot
         sel_df = select_option_strikes(contract_df, spot_price, expiry, n=STRIKES_TO_PICK)
         st.session_state["strike_df"] = sel_df.copy()
         st.session_state["strikes_for_day"] = (str(today), expiry)
-    else:
-        st.info("Waiting for strike selection at 09:16 IST…")
-        st.stop()
+
 
 display_df = st.session_state["strike_df"]
 st.table(display_df[["option_type", "strike_price", "expiry", "instrument_key"]].sort_values("option_type"))
