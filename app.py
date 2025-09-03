@@ -1,3 +1,5 @@
+
+
 import streamlit as st
 import requests
 import pandas as pd
@@ -97,12 +99,12 @@ def poll_greeks_ltp(inst_keys):
     return data
 
 # Black-Scholes fallback (uses spot, strike, t, r, iv)
-def black_scholes_greeks(S, K, T, sigma, option_type, r=0.05):
+def black_scholes_greeks(S, K, T, sigma, instrument_type, r=0.05):
     if T <= 0 or sigma <= 0:  # avoid math errors
         return dict(delta=0, gamma=0, vega=0, theta=0)
     d1 = (np.log(S/K) + (r + 0.5*sigma*sigma)*T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
-    call = option_type == "CE"
+    call = instrument_type == "CE"
     delta = norm.cdf(d1) if call else -norm.cdf(-d1)
     gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
     vega = S * norm.pdf(d1) * np.sqrt(T) / 100
@@ -120,9 +122,9 @@ def fallback_compute(contract, spot, ltp):
     # Fallback Black-Scholes if greeks missing
     K = contract["strike_price"]
     T = get_years_to_expiry(contract["expiry"])
-    option_type = contract["option_type"]
+    instrument_type = contract["instrument_type"]
     sigma = 0.2  # Assumed IV for fallback; can try guess from ltp
-    return black_scholes_greeks(spot, K, T, sigma, option_type)
+    return black_scholes_greeks(spot, K, T, sigma, instrument_type)
 
 # ----- Session State/buffering -----
 from zoneinfo import ZoneInfo
@@ -179,7 +181,7 @@ if start_poll <= now <= end_poll:
         # Use API values, fallback to Black-Scholes if needed
         gd = greek_data.get(ikey, {})
         ltp = gd.get("ltp", np.nan)
-        row.update({f"{contract['option_type']}_{int(contract['strike_price'])}_{k}": (
+        row.update({f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": (
             gd[k] if gd.get(k) not in [None, ""] else
             fallback_compute(contract, spot_price, ltp).get(k, np.nan))
             for k in ["delta","gamma","vega","theta","iv"]})
