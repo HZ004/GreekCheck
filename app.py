@@ -138,6 +138,7 @@ start_poll = datetime.combine(today, time(9,20), IST)
 end_poll = datetime.combine(today, time(15,20), IST)
 
 contract_df = fetch_option_contracts()
+st.write("Contract DataFrame Columns:", contract_df.columns.tolist())
 
 # Use underlying instrument_key ("NSE_INDEX|Nifty 50") for spot price
 spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
