@@ -202,7 +202,38 @@ display_df = st.session_state["strike_df"]
 # Filter strikes divisible by 100 and sort by strike_price ascending
 filtered_df = display_df[display_df["strike_price"] % 100 == 0].sort_values(by=['instrument_type', 'strike_price'])
 
-st.table(filtered_df[["instrument_type", "strike_price", "expiry"]])
+# Prepare filtered DataFrame for display
+styled_df = filtered_df[["instrument_type", "strike_price", "expiry"]].copy()
+
+# Format columns
+styled_df["strike_price"] = styled_df["strike_price"].astype(int)
+styled_df["expiry"] = pd.to_datetime(styled_df["expiry"]).dt.strftime('%Y-%m-%d')
+
+# Rename columns for nicer headers
+styled_df = styled_df.rename(columns={
+    "instrument_type": "Option Type",
+    "strike_price": "Strike Price",
+    "expiry": "Expiry Date"
+})
+
+# Define row-wise styling based on Option Type
+def highlight_option_type(row):
+    if row["Option Type"] == "CE":
+        return ['background-color: #d0e7ff'] * len(row)  # Light blue
+    elif row["Option Type"] == "PE":
+        return ['background-color: #ffd6d6'] * len(row)  # Light red
+    else:
+        return [''] * len(row)
+
+# Display styled dataframe with fixed height and interactive features
+st.dataframe(
+    styled_df.style.apply(highlight_option_type, axis=1),
+    height=400,
+    use_container_width=True
+)
+
+
+# st.table(filtered_df[["instrument_type", "strike_price", "expiry"]])
 
 display_df = filtered_df
 keys_monitored = list(display_df.instrument_key)
