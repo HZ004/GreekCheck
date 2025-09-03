@@ -2,7 +2,7 @@ import os
 import datetime
 import requests
 
-SERVICE_URL = os.getenv("https://greekcheck-1.onrender.com/")  # Your Render Streamlit app URL
+SERVICE_URL = os.getenv("SERVICE_URL")  # Your Render Streamlit app URL
 
 IST_OFFSET = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
