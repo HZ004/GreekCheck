@@ -178,7 +178,6 @@ if start_poll <= now <= end_poll:
 
     # Run a loop for live polling and updating
     for _ in range(1000):  # Loop count can be adjusted or replaced by while True for infinite
-        now = datetime.now()
 
         # Poll Upstox for Greeks and LTP (bulk)
         greek_data = poll_greeks_ltp(keys_monitored)
