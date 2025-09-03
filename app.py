@@ -45,11 +45,13 @@ def fetch_option_contracts():
 def fetch_spot_price(spot_instrument_key):
     r = requests.get(API_LTP, headers=HEADERS, params={"instrument_key": spot_instrument_key})
     response = r.json()
-    if "data" in response and spot_instrument_key in response["data"]:
-        # Use last_price, not ltp, based on actual API response
-        return float(response["data"][spot_instrument_key].get("last_price", 0))
+    # Key with colon to match API data keys
+    key_in_data = spot_instrument_key.replace("|", ":")
+    if "data" in response and key_in_data in response["data"]:
+        return float(response["data"][key_in_data].get("last_price", 0))
     st.error(f"Error fetching spot price: {response}")
     st.stop()
+
 
 
 def get_nearest_expiry(contract_df):
