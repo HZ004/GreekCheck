@@ -1,32 +1,28 @@
-import time
+import os
 import datetime
 import requests
 
-# Configuration
-SERVICE_URL = "https://greekcheck-1.onrender.com/"  # Replace with your actual Render service URL
+SERVICE_URL = os.getenv("https://greekcheck-1.onrender.com/")  # Your Render Streamlit app URL
 
-# IST timezone
 IST_OFFSET = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
-def keep_service_alive():
-    print("Starting keep-alive pings...")
-    while True:
-        now = datetime.datetime.now(IST_OFFSET)
-        if now.hour < 9 or (now.hour == 9 and now.minute < 10):
-            print(f"Before active ping hours: {now.isoformat()}")
-            break
-        if now.hour > 15 or (now.hour == 15 and now.minute > 40):
-            print(f"After active ping hours: {now.isoformat()}")
-            break
+def keep_alive_ping():
+    now = datetime.datetime.now(IST_OFFSET)
+    print(f"Pinging service at IST time {now.isoformat()}")
+    try:
+        response = requests.get(SERVICE_URL)
+        print(f"Ping status code: {response.status_code}")
+    except Exception as e:
+        print(f"Ping failed: {e}")
 
-        try:
-            print(f"Pinging {SERVICE_URL} at {now.isoformat()}")
-            response = requests.get(SERVICE_URL)
-            print(f"Response status: {response.status_code}")
-        except Exception as e:
-            print(f"Exception during ping: {e}")
-
-        time.sleep(300)  # Wait 15 minutes before next ping
+def main():
+    now = datetime.datetime.now(IST_OFFSET)
+    hour, minute = now.hour, now.minute
+    # Ping only between 09:10 and 15:40 IST
+    if (hour == 9 and minute >= 10) or (10 <= hour < 15) or (hour == 15 and minute <= 40):
+        keep_alive_ping()
+    else:
+        print(f"Outside active ping hours at {now.isoformat()}")
 
 if __name__ == "__main__":
-    keep_service_alive()
+    main()
