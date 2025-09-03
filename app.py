@@ -60,25 +60,61 @@ def get_nearest_expiry(contract_df):
     today = datetime.now().date()
     return contract_df[contract_df["expiry"] >= today]["expiry"].min()
 
+# def select_option_strikes(contract_df, spot, expiry, n=5):
+#     # Get ordered strikes for calls/puts at given expiry
+#     df_expiry = contract_df[contract_df["expiry"] == expiry]
+#     strikes = np.sort(df_expiry["strike_price"].unique())
+#     idx_atm = (np.abs(strikes - spot)).argmin()
+#     # ITM < ATM < OTM (for calls; reverse for puts)
+#     ce_itm = strikes[max(0, idx_atm-n):idx_atm][::-1]  # Calls, In-the-money
+#     ce_otm = strikes[idx_atm+1:idx_atm+1+n]            # Calls, Out-the-money
+#     pe_itm = strikes[idx_atm+1:idx_atm+1+n]            # Puts, In-the-money
+#     pe_otm = strikes[max(0, idx_atm-n):idx_atm][::-1]  # Puts, Out-the-money
+#     # Gather instrument_keys for each side
+#     contract = lambda strike, inst_type: df_expiry[(df_expiry["strike_price"] == strike) & (df_expiry["instrument_type"] == inst_type)].iloc[0]
+
+#     selection = []
+#     for strike in ce_itm: selection.append(contract(strike, "CE"))
+#     for strike in ce_otm: selection.append(contract(strike, "CE"))
+#     for strike in pe_itm: selection.append(contract(strike, "PE"))
+#     for strike in pe_otm: selection.append(contract(strike, "PE"))
+#     return pd.DataFrame(selection)
+
 def select_option_strikes(contract_df, spot, expiry, n=5):
-    # Get ordered strikes for calls/puts at given expiry
+    # Filter contracts for expiry
     df_expiry = contract_df[contract_df["expiry"] == expiry]
     strikes = np.sort(df_expiry["strike_price"].unique())
     idx_atm = (np.abs(strikes - spot)).argmin()
-    # ITM < ATM < OTM (for calls; reverse for puts)
-    ce_itm = strikes[max(0, idx_atm-n):idx_atm][::-1]  # Calls, In-the-money
-    ce_otm = strikes[idx_atm+1:idx_atm+1+n]            # Calls, Out-the-money
-    pe_itm = strikes[idx_atm+1:idx_atm+1+n]            # Puts, In-the-money
-    pe_otm = strikes[max(0, idx_atm-n):idx_atm][::-1]  # Puts, Out-the-money
-    # Gather instrument_keys for each side
-    contract = lambda strike, inst_type: df_expiry[(df_expiry["strike_price"] == strike) & (df_expiry["instrument_type"] == inst_type)].iloc[0]
+    atm_strike = strikes[idx_atm]
 
+    # ITM < ATM < OTM (for calls; reverse for puts)
+    ce_itm = strikes[max(0, idx_atm - n):idx_atm][::-1]  # Calls, In-the-money
+    ce_atm = np.array([atm_strike])                        # Calls, At-the-money
+    ce_otm = strikes[idx_atm + 1:idx_atm + 1 + n]         # Calls, Out-of-the-money
+
+    pe_itm = strikes[idx_atm + 1:idx_atm + 1 + n]         # Puts, In-the-money
+    pe_atm = np.array([atm_strike])                        # Puts, At-the-money
+    pe_otm = strikes[max(0, idx_atm - n):idx_atm][::-1]   # Puts, Out-of-the-money
+
+    # Combine strikes for calls and puts including ATM strikes
+    ce_strikes = np.concatenate([ce_itm, ce_atm, ce_otm])
+    pe_strikes = np.concatenate([pe_itm, pe_atm, pe_otm])
+
+    # Lambda function to get contract row by strike and option type
+    contract = lambda strike, inst_type: df_expiry[
+        (df_expiry["strike_price"] == strike) & (df_expiry["instrument_type"] == inst_type)
+    ].iloc[0]
+
+    # Build selection list
     selection = []
-    for strike in ce_itm: selection.append(contract(strike, "CE"))
-    for strike in ce_otm: selection.append(contract(strike, "CE"))
-    for strike in pe_itm: selection.append(contract(strike, "PE"))
-    for strike in pe_otm: selection.append(contract(strike, "PE"))
+    for strike in ce_strikes:
+        selection.append(contract(strike, "CE"))
+    for strike in pe_strikes:
+        selection.append(contract(strike, "PE"))
+
+    # Return combined DataFrame of selection
     return pd.DataFrame(selection)
+
 
 def poll_greeks_ltp(inst_keys):
     # Bulk poll Greeks and LTPs
