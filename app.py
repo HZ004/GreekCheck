@@ -191,24 +191,50 @@ if start_poll <= now <= end_poll:
             return [""] * len(row)
 
     st.dataframe(styled_df.style.apply(highlight_option_type, axis=1), height=400, use_container_width=True)
+	
+	# Your DataFrame 'df' from polling time series contains columns like 'CE_18500_delta', 'PE_18500_delta', etc.
+	
+	greek_metrics = ["delta", "theta", "vega", "rho"]  # Including rho
+	option_types = ["CE", "PE"]
+	names_for_caption = {
+	    "delta": "Delta",
+	    "theta": "Theta",
+	    "vega": "Vega",
+	    "rho": "Rho"
+	}
+	
+	# Create 2 columns for side-by-side CE and PE charts
+	col1, col2 = st.columns(2)
+	
+	for row_idx, metric in enumerate(greek_metrics):
+	    # Find relevant CE columns and PE columns for the metric
+	    ce_cols = [col for col in df.columns if (col.startswith("CE_") and col.endswith(f"_{metric}"))]
+	    pe_cols = [col for col in df.columns if (col.startswith("PE_") and col.endswith(f"_{metric}"))]
+	
+	    # Plot CE metric in left column
+	    with col1:
+	        if ce_cols:
+	            fig_ce = px.line(
+	                df,
+	                x="timestamp",
+	                y=ce_cols,
+	                title=f"Call (CE) {names_for_caption[metric]} Time Series",
+	                labels={"value": names_for_caption[metric], "timestamp": "Time"},
+	            )
+	            st.plotly_chart(fig_ce, use_container_width=True)
+	
+	    # Plot PE metric in right column
+	    with col2:
+	        if pe_cols:
+	            fig_pe = px.line(
+	                df,
+	                x="timestamp",
+	                y=pe_cols,
+	                title=f"Put (PE) {names_for_caption[metric]} Time Series",
+	                labels={"value": names_for_caption[metric], "timestamp": "Time"},
+	            )
+            st.plotly_chart(fig_pe, use_container_width=True)
 
-    greek_metrics = ["delta", "theta", "vega", "rho"]
-    names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
-    col1, col2 = st.columns(2)
-    metric_cols = [col1, col2, col1, col2]
-
-    for idx, metric in enumerate(greek_metrics):
-        with metric_cols[idx]:
-            chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
-            if chosen:
-                fig = px.line(
-                    df,
-                    x="timestamp",
-                    y=chosen,
-                    title=f"{names_for_caption[metric]} Time Series",
-                    labels={"value": names_for_caption[metric], "timestamp": "Time"},
-                )
-                st.plotly_chart(fig, use_container_width=True)
 
     if not df.empty:
         csv_buffer = io.StringIO()
