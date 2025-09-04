@@ -181,27 +181,41 @@ if start_poll <= now <= end_poll:
 #   st.dataframe(styled_df.style.apply(highlight_option_type, axis=1), height=400, use_container_width=True)
 
     # Plot Greeks (delta, theta, vega, rho) separately for CE and PE in 4x2 layout
-    greek_metrics = ["delta", "theta", "vega", "rho"]
-    names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
-    col1, col2 = st.columns(2)
-
-    for metric in greek_metrics:
-        ce_cols = [c for c in df.columns if c.startswith("CE_") and c.endswith(f"_{metric}")]
-        pe_cols = [c for c in df.columns if c.startswith("PE_") and c.endswith(f"_{metric}")]
-
-        with col1:
-            if ce_cols:
-                fig_ce = px.line(df, x="timestamp", y=ce_cols,
-                                 title=f"Call (CE) {names_for_caption[metric]} Time Series",
-                                 labels={"value": names_for_caption[metric], "timestamp": "Time"})
-                st.plotly_chart(fig_ce, use_container_width=True)
-
-        with col2:
-            if pe_cols:
-                fig_pe = px.line(df, x="timestamp", y=pe_cols,
-                                 title=f"Put (PE) {names_for_caption[metric]} Time Series",
-                                 labels={"value": names_for_caption[metric], "timestamp": "Time"})
-                st.plotly_chart(fig_pe, use_container_width=True)
+	greek_metrics = ["delta", "theta", "vega", "rho"]
+	names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
+	col1, col2 = st.columns(2)
+	
+	for metric in greek_metrics:
+	    ce_cols = [c for c in df.columns if c.startswith("CE_") and c.endswith(f"_{metric}")]
+	    pe_cols = [c for c in df.columns if c.startswith("PE_") and c.endswith(f"_{metric}")]
+	
+	    # Determine combined y-axis min and max across both CE and PE columns
+	    y_min, y_max = None, None
+	    if ce_cols or pe_cols:
+	        combined_data = pd.concat([df[ce_cols] if ce_cols else pd.DataFrame(),
+	                                   df[pe_cols] if pe_cols else pd.DataFrame()], axis=1)
+	        y_min = combined_data.min().min()
+	        y_max = combined_data.max().max()
+	    y_range = [y_min, y_max] if y_min is not None and y_max is not None else None
+	
+	    with col1:
+	        if ce_cols:
+	            fig_ce = px.line(df, x="timestamp", y=ce_cols,
+	                             title=f"Call (CE) {names_for_caption[metric]} Time Series",
+	                             labels={"value": names_for_caption[metric], "timestamp": "Time"})
+	            if y_range:
+	                fig_ce.update_yaxes(range=y_range)
+	            st.plotly_chart(fig_ce, use_container_width=True)
+	
+	    with col2:
+	        if pe_cols:
+	            fig_pe = px.line(df, x="timestamp", y=pe_cols,
+	                             title=f"Put (PE) {names_for_caption[metric]} Time Series",
+	                             labels={"value": names_for_caption[metric], "timestamp": "Time"})
+	            if y_range:
+	                fig_pe.update_yaxes(range=y_range)
+	            st.plotly_chart(fig_pe, use_container_width=True)
+	
 
     if not df.empty:
         csv_buffer = io.StringIO()
