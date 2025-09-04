@@ -167,117 +167,79 @@ def fallback_compute(contract, spot, ltp):
 
 # ----- Session State/buffering -----
 
+# Set up IST timezone
 IST = ZoneInfo("Asia/Kolkata")
+
+# Auto-refresh every 5 seconds, max 1000 refreshes
+refresh_count = st_autorefresh(interval=5000, limit=1000, key="greeks_refresh")
 
 now = datetime.now(IST)
 today = now.date()
-strike_lock_time = datetime.combine(today, time(9, 16), IST)
 
-st.sidebar.info("Strikes are fixed at 09:16 each day.")
+start_poll = datetime.combine(today, time(9, 20), IST)
+end_poll = datetime.combine(today, time(15, 20), IST)
 
-start_poll = datetime.combine(today, time(9,20), IST)
-end_poll = datetime.combine(today, time(15,20), IST)
-
-contract_df = fetch_option_contracts()
-
-# Use underlying instrument_key ("NSE_INDEX|Nifty 50") for spot price
-spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
-expiry_list = sorted(contract_df["expiry"].unique())
-
-expiry = st.selectbox("Option Expiry", expiry_list, index=expiry_list.index(get_nearest_expiry(contract_df)))
-show_spot = st.markdown(f"**Spot Price:** {spot_price}")
-
-# Fix strikes at 09:16 IST, update once per day
-if "strike_df" not in st.session_state or st.session_state.get("strikes_for_day") != (str(today), expiry):
-    if now < strike_lock_time:
-        st.info("Waiting for strike selection at 09:16 IST…")
-        st.stop()
-    else:
-        # After 09:16, select strikes immediately on startup, using current spot
-        sel_df = select_option_strikes(contract_df, spot_price, expiry, n=STRIKES_TO_PICK)
-        st.session_state["strike_df"] = sel_df.copy()
-        st.session_state["strikes_for_day"] = (str(today), expiry)
-
-
-display_df = st.session_state["strike_df"]
-
-# Filter strikes divisible by 100 and sort by strike_price ascending
-filtered_df = display_df[display_df["strike_price"] % 100 == 0].sort_values(by=['instrument_type', 'strike_price'])
-
-# st.table(filtered_df[["instrument_type", "strike_price", "expiry"]])
-
-display_df = filtered_df
-keys_monitored = list(display_df.instrument_key)
-
-# --- Live Data Polling ---
-
-# Create placeholders outside the loop
 table_placeholder = st.empty()
-charts_placeholder = st.empty()
 
 if start_poll <= now <= end_poll:
-    # Initialize or retrieve time series storage
+    # Retrieve or initialize Greeks time series list
     datalist = st.session_state.get("greek_ts", [])
 
-    # Run a loop for live polling and updating
-    while True:  # Loop count can be adjusted or replaced by while True for infinite
+    # Poll Greeks once per run
+    greek_data = poll_greeks_ltp(keys_monitored)
+    timestamp = datetime.now(IST)
 
-        # Poll Upstox for Greeks and LTP (bulk)
-        greek_data = poll_greeks_ltp(keys_monitored)
-        timestamp = datetime.now(IST)  # Use current time every loop for fresh timestamp
+    # Build new row for current timestamp
+    row = {"timestamp": timestamp}
+    for i, contract in display_df.iterrows():
+        ikey = contract["instrument_key"]
+        gd = greek_data.get(ikey, {})
+        ltp = gd.get("ltp", float('nan'))
+        row.update({
+            f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}":
+            (gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float('nan')))
+            for k in ["delta", "gamma", "vega", "theta", "rho"]
+        })
 
-        # Build a new row with current data
-        row = {"timestamp": timestamp}
-        for i, contract in display_df.iterrows():
-            ikey = contract["instrument_key"]
-            gd = greek_data.get(ikey, {})
-            ltp = gd.get("ltp", np.nan)
-            row.update({f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": (
-                gd[k] if gd.get(k) not in [None, ""] else
-                fallback_compute(contract, spot_price, ltp).get(k, np.nan))
-                for k in ["delta", "gamma", "vega", "theta", "iv"]})
+    datalist.append(row)
+    st.session_state["greek_ts"] = datalist
 
-        # Append new row to stored time series
-        datalist.append(row)
-        st.session_state["greek_ts"] = datalist
+    df = pd.DataFrame(datalist)
 
-        # Convert to dataframe for display
-        df = pd.DataFrame(datalist)
+    # Styled table of strikes
+    styled_df = display_df[["instrument_type", "strike_price", "expiry"]].copy()
 
-        # Optionally display latest data rows in a table
-        # table_placeholder.dataframe(df.tail(50))
+    # Plot Greeks (delta, theta, vega, rho) in 2x2 layout
+    greek_metrics = ["delta", "theta", "vega", "rho"]
+    names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
+    col1, col2 = st.columns(2)
+    metric_cols = [col1, col2, col1, col2]
 
-        # Plot Delta, Theta, Vega, Rho in a 2x2 grid (skip IV)
-        greek_metrics = ["delta", "theta", "vega", "rho"]
-        names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
-        col1, col2 = st.columns(2)
-        metric_cols = [col1, col2, col1, col2]  # 4 slots for 4 plots
+    for idx, metric in enumerate(greek_metrics):
+        with metric_cols[idx]:
+            chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
+            if chosen:
+                fig = px.line(
+                    df,
+                    x="timestamp",
+                    y=chosen,
+                    title=f"{names_for_caption[metric]} Time Series",
+                    labels={"value": names_for_caption[metric], "timestamp": "Time"},
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
-        for idx, metric in enumerate(greek_metrics):
-            with metric_cols[idx]:
-                chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
-                if chosen:
-                    fig = px.line(
-                        df,
-                        x="timestamp",
-                        y=chosen,
-                        title=f"{names_for_caption[metric]} Time Series",
-                        labels={"value": names_for_caption[metric], "timestamp": "Time"},
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+    # Download CSV button for full Greeks timeseries
+    if not df.empty:
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_bytes = csv_buffer.getvalue().encode()
 
-        # --- Download CSV Button for Full Greeks ---
-        if len(df) > 0:
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
-            csv_bytes = csv_buffer.getvalue().encode()
-            st.download_button(
-                label="Download Full Day Greeks CSV",
-                data=csv_bytes,
-                file_name=f"greeks_data_{timestamp.strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
-        pytime.sleep(0.5)  # small delay between polls
-        
+        st.download_button(
+            label="Download Full Day Greeks CSV",
+            data=csv_bytes,
+            file_name=f"greeks_data_{now.strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
