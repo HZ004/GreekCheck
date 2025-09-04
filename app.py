@@ -9,14 +9,18 @@ import plotly.express as px
 from scipy.stats import norm
 from zoneinfo import ZoneInfo
 import io
+import os
+
+
 
 st.set_page_config(layout="wide")
 st.title("Upstox Live Options Greeks Dashboard")
 
 # --- User Input ---
-upstox_token = st.text_input("Paste Upstox Access Token", type="password", help="Token expires daily, paste every morning.")
+upstox_token = os.getenv("UPSTOX_TOKEN")
+
 if not upstox_token:
-    st.info("Paste your Upstox token to begin.")
+    st.error("Upstox access token not found in environment variables. Please set UPSTOX_TOKEN in Render environment.")
     st.stop()
 
 EXCHANGE = "NSE_INDEX"
