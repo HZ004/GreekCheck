@@ -209,6 +209,11 @@ if start_poll <= now <= end_poll:
     # Styled table of strikes
     styled_df = display_df[["instrument_type", "strike_price", "expiry"]].copy()
 
+    filtered_df = display_df[display_df["strike_price"] % 100 == 0].sort_values(by=['instrument_type', 'strike_price'])
+    display_df = filtered_df  # if you want further usage
+
+    keys_monitored = list(display_df["instrument_key"])
+
     # Plot Greeks (delta, theta, vega, rho) in 2x2 layout
     greek_metrics = ["delta", "theta", "vega", "rho"]
     names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
