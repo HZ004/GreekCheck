@@ -268,33 +268,19 @@ for idx, metric in enumerate(greek_metrics):
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        pytime.sleep(0.5)  # Wait before next poll/update
+    # --- Download CSV Button for Full Greeks ---
+    if len(df) > 0:
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_bytes = csv_buffer.getvalue().encode()
+        st.download_button(
+            label="Download Full Day Greeks CSV",
+            data=csv_bytes,
+            file_name=f"greeks_data_{now.strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    pytime.sleep(0.5)
 
-        else:
-            st.info("Live polling active only between 09:20 and 15:20 IST.")
-
-# After your live polling block and charts update code, add the download CSV button:
-
-if "greek_ts" in st.session_state and st.session_state["greek_ts"]:
-    # Prepare full Greeks DataFrame for download
-    full_df = pd.DataFrame(st.session_state["greek_ts"])
-
-    # Convert DataFrame to CSV in memory buffer
-    csv_buffer = io.StringIO()
-    full_df.to_csv(csv_buffer, index=False)
-    csv_bytes = csv_buffer.getvalue().encode()
-
-    # Download button for CSV
-    st.download_button(
-        label="Download Full Day Greeks CSV",
-        data=csv_bytes,
-        file_name=f"greeks_data_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv"
-    )
 else:
-    st.info("No Greeks data available yet for download.")
-
-
-st.caption("Uses Upstox official APIs. Token expires daily.")
-
+    st.info("Live polling active only between 09:20 and 15:20 IST.")
 # ---------- End of file ----------
