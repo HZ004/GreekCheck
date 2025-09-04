@@ -220,11 +220,11 @@ if start_poll <= now <= end_poll:
     datalist = st.session_state.get("greek_ts", [])
 
     # Run a loop for live polling and updating
-    for _ in range(1000):  # Loop count can be adjusted or replaced by while True for infinite
+    while True:  # Loop count can be adjusted or replaced by while True for infinite
 
         # Poll Upstox for Greeks and LTP (bulk)
         greek_data = poll_greeks_ltp(keys_monitored)
-        timestamp = now
+        timestamp = datetime.now(IST)  # Use current time every loop for fresh timestamp
 
         # Build a new row with current data
         row = {"timestamp": timestamp}
@@ -244,43 +244,40 @@ if start_poll <= now <= end_poll:
         # Convert to dataframe for display
         df = pd.DataFrame(datalist)
 
-        # Update the table in place
-#       # table_placeholder.dataframe(df.tail(50))
+        # Optionally display latest data rows in a table
+        # table_placeholder.dataframe(df.tail(50))
 
         # Plot Delta, Theta, Vega, Rho in a 2x2 grid (skip IV)
-greek_metrics = ["delta", "theta", "vega", "rho"]
-names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
+        greek_metrics = ["delta", "theta", "vega", "rho"]
+        names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
+        col1, col2 = st.columns(2)
+        metric_cols = [col1, col2, col1, col2]  # 4 slots for 4 plots
 
-# Create 2 columns, display 2 charts per row
-col1, col2 = st.columns(2)
-metric_cols = [col1, col2] * 2  # List: [c1, c2, c1, c2] for 4 plots
+        for idx, metric in enumerate(greek_metrics):
+            with metric_cols[idx]:
+                chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
+                if chosen:
+                    fig = px.line(
+                        df,
+                        x="timestamp",
+                        y=chosen,
+                        title=f"{names_for_caption[metric]} Time Series",
+                        labels={"value": names_for_caption[metric], "timestamp": "Time"},
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
-for idx, metric in enumerate(greek_metrics):
-    with metric_cols[idx]:
-        chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
-        if chosen:
-            fig = px.line(
-                df,
-                x="timestamp",
-                y=chosen,
-                title=f"{names_for_caption[metric]} Time Series",
-                labels={"value": names_for_caption[metric], "timestamp": "Time"},
+        # --- Download CSV Button for Full Greeks ---
+        if len(df) > 0:
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_bytes = csv_buffer.getvalue().encode()
+            st.download_button(
+                label="Download Full Day Greeks CSV",
+                data=csv_bytes,
+                file_name=f"greeks_data_{timestamp.strftime('%Y%m%d')}.csv",
+                mime="text/csv"
             )
-            st.plotly_chart(fig, use_container_width=True)
-
-    # --- Download CSV Button for Full Greeks ---
-    if len(df) > 0:
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False)
-        csv_bytes = csv_buffer.getvalue().encode()
-        st.download_button(
-            label="Download Full Day Greeks CSV",
-            data=csv_bytes,
-            file_name=f"greeks_data_{now.strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
-    pytime.sleep(0.5)
-
+        pytime.sleep(0.5)  # small delay between polls
+        
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
-# ---------- End of file ----------
