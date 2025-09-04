@@ -165,12 +165,11 @@ if start_poll <= now <= end_poll:
         ikey = contract["instrument_key"]
         gd = greek_data.get(ikey, {})
         ltp = gd.get("ltp", float("nan"))
-        row.update(
-            {
-                f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": (gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan")))
-                for k in ["delta", "gamma", "vega", "theta", "rho"]
-            }
-        )
+        row.update({
+            f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": 
+            (gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan"))) 
+            for k in ["delta", "gamma", "vega", "theta", "rho"]
+        })
 
     datalist.append(row)
     st.session_state["greek_ts"] = datalist
@@ -178,63 +177,31 @@ if start_poll <= now <= end_poll:
     df = pd.DataFrame(datalist)
 
     styled_df = display_df[["instrument_type", "strike_price", "expiry"]].copy()
-    styled_df["strike_price"] = styled_df["strike_price"].astype(int)
-    styled_df["expiry"] = pd.to_datetime(styled_df["expiry"]).dt.strftime("%Y-%m-%d")
-    styled_df = styled_df.rename(columns={"instrument_type": "Option Type", "strike_price": "Strike Price", "expiry": "Expiry Date"})
+    
+#   st.dataframe(styled_df.style.apply(highlight_option_type, axis=1), height=400, use_container_width=True)
 
-    def highlight_option_type(row):
-        if row["Option Type"] == "CE":
-            return ["background-color: #d0e7ff"] * len(row)
-        elif row["Option Type"] == "PE":
-            return ["background-color: #ffd6d6"] * len(row)
-        else:
-            return [""] * len(row)
+    # Plot Greeks (delta, theta, vega, rho) separately for CE and PE in 4x2 layout
+    greek_metrics = ["delta", "theta", "vega", "rho"]
+    names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
+    col1, col2 = st.columns(2)
 
-    st.dataframe(styled_df.style.apply(highlight_option_type, axis=1), height=400, use_container_width=True)
-	
-	# Your DataFrame 'df' from polling time series contains columns like 'CE_18500_delta', 'PE_18500_delta', etc.
-	
-	greek_metrics = ["delta", "theta", "vega", "rho"]  # Including rho
-	option_types = ["CE", "PE"]
-	names_for_caption = {
-	    "delta": "Delta",
-	    "theta": "Theta",
-	    "vega": "Vega",
-	    "rho": "Rho"
-	}
-	
-	# Create 2 columns for side-by-side CE and PE charts
-	col1, col2 = st.columns(2)
-	
-	for row_idx, metric in enumerate(greek_metrics):
-	    # Find relevant CE columns and PE columns for the metric
-	    ce_cols = [col for col in df.columns if (col.startswith("CE_") and col.endswith(f"_{metric}"))]
-	    pe_cols = [col for col in df.columns if (col.startswith("PE_") and col.endswith(f"_{metric}"))]
-	
-	    # Plot CE metric in left column
-	    with col1:
-	        if ce_cols:
-	            fig_ce = px.line(
-	                df,
-	                x="timestamp",
-	                y=ce_cols,
-	                title=f"Call (CE) {names_for_caption[metric]} Time Series",
-	                labels={"value": names_for_caption[metric], "timestamp": "Time"},
-	            )
-	            st.plotly_chart(fig_ce, use_container_width=True)
-	
-	    # Plot PE metric in right column
-	    with col2:
-	        if pe_cols:
-	            fig_pe = px.line(
-	                df,
-	                x="timestamp",
-	                y=pe_cols,
-	                title=f"Put (PE) {names_for_caption[metric]} Time Series",
-	                labels={"value": names_for_caption[metric], "timestamp": "Time"},
-	            )
-            st.plotly_chart(fig_pe, use_container_width=True)
+    for metric in greek_metrics:
+        ce_cols = [c for c in df.columns if c.startswith("CE_") and c.endswith(f"_{metric}")]
+        pe_cols = [c for c in df.columns if c.startswith("PE_") and c.endswith(f"_{metric}")]
 
+        with col1:
+            if ce_cols:
+                fig_ce = px.line(df, x="timestamp", y=ce_cols,
+                                 title=f"Call (CE) {names_for_caption[metric]} Time Series",
+                                 labels={"value": names_for_caption[metric], "timestamp": "Time"})
+                st.plotly_chart(fig_ce, use_container_width=True)
+
+        with col2:
+            if pe_cols:
+                fig_pe = px.line(df, x="timestamp", y=pe_cols,
+                                 title=f"Put (PE) {names_for_caption[metric]} Time Series",
+                                 labels={"value": names_for_caption[metric], "timestamp": "Time"})
+                st.plotly_chart(fig_pe, use_container_width=True)
 
     if not df.empty:
         csv_buffer = io.StringIO()
@@ -245,8 +212,7 @@ if start_poll <= now <= end_poll:
             label="Download Full Day Greeks CSV",
             data=csv_bytes,
             file_name=f"greeks_data_{now.strftime('%Y%m%d')}.csv",
-            mime="text/csv",
+            mime="text/csv"
         )
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
-
