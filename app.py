@@ -204,7 +204,7 @@ display_df = st.session_state["strike_df"]
 # Filter strikes divisible by 100 and sort by strike_price ascending
 filtered_df = display_df[display_df["strike_price"] % 100 == 0].sort_values(by=['instrument_type', 'strike_price'])
 
-st.table(filtered_df[["instrument_type", "strike_price", "expiry"]])
+# st.table(filtered_df[["instrument_type", "strike_price", "expiry"]])
 
 display_df = filtered_df
 keys_monitored = list(display_df.instrument_key)
@@ -245,18 +245,33 @@ if start_poll <= now <= end_poll:
         df = pd.DataFrame(datalist)
 
         # Update the table in place
-        table_placeholder.dataframe(df.tail(50))
+#       # table_placeholder.dataframe(df.tail(50))
 
-        # Update charts in place
-        for metric in ["delta", "gamma", "vega", "theta", "iv"]:
-            chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
-            fig = px.line(df, x="timestamp", y=chosen, title=f"{metric.upper()} Time Series")
-            charts_placeholder.plotly_chart(fig, use_container_width=True)
+        # Plot Delta, Theta, Vega, Rho in a 2x2 grid (skip IV)
+greek_metrics = ["delta", "theta", "vega", "rho"]
+names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
 
-        pytime.sleep(1)  # Wait before next poll/update
+# Create 2 columns, display 2 charts per row
+col1, col2 = st.columns(2)
+metric_cols = [col1, col2] * 2  # List: [c1, c2, c1, c2] for 4 plots
 
-else:
-    st.info("Live polling active only between 09:20 and 15:20 IST.")
+for idx, metric in enumerate(greek_metrics):
+    with metric_cols[idx]:
+        chosen = [c for c in df.columns if c.endswith(f"_{metric}")]
+        if chosen:
+            fig = px.line(
+                df,
+                x="timestamp",
+                y=chosen,
+                title=f"{names_for_caption[metric]} Time Series",
+                labels={"value": names_for_caption[metric], "timestamp": "Time"},
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        pytime.sleep(0.5)  # Wait before next poll/update
+
+        else:
+            st.info("Live polling active only between 09:20 and 15:20 IST.")
 
 # After your live polling block and charts update code, add the download CSV button:
 
