@@ -249,3 +249,4 @@ if start_poll <= now <= end_poll:
         )
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
+
