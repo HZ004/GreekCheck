@@ -168,7 +168,7 @@ if start_poll <= now <= end_poll:
         row.update({
             f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": 
             (gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan"))) 
-            for k in ["delta", "gamma", "vega", "theta", "rho"]
+            for k in ["ltp", "delta", "gamma", "theta"]
         })
 
     datalist.append(row)
@@ -179,8 +179,14 @@ if start_poll <= now <= end_poll:
     styled_df = display_df[["instrument_type", "strike_price", "expiry"]].copy()
     
     #   st.dataframe(styled_df.style.apply(highlight_option_type, axis=1), height=400, use_container_width=True)
-    greek_metrics = ["delta", "theta", "vega", "rho"]
-    names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
+    greek_metrics = ["ltp", "delta", "gamma", "theta"]
+    names_for_caption = {
+        "ltp": "Last Traded Price",
+        "delta": "Delta",
+        "gamma": "Gamma",
+        "theta": "Theta"
+    }
+    
     col1, col2 = st.columns(2)
     
     for metric in greek_metrics:
