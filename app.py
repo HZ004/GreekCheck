@@ -10,17 +10,11 @@ from scipy.stats import norm
 from zoneinfo import ZoneInfo
 import io
 
-# --- Your other helper functions remain unchanged ---
-
 st.set_page_config(layout="wide")
 st.title("Upstox Live Options Greeks Dashboard")
 
 # --- User Input ---
-upstox_token = st.text_input(
-    "Paste Upstox Access Token", type="password",
-    help="Token expires daily, paste every morning."
-)
-
+upstox_token = st.text_input("Paste Upstox Access Token", type="password", help="Token expires daily, paste every morning.")
 if not upstox_token:
     st.info("Paste your Upstox token to begin.")
     st.stop()
@@ -34,53 +28,135 @@ API_GREEKS = "https://api.upstox.com/v3/market-quote/option-greek"
 API_LTP = "https://api.upstox.com/v3/market-quote/ltp"
 HEADERS = {"Authorization": f"Bearer {upstox_token}", "Accept": "application/json"}
 
-# --- Fetch contracts & spot price ---
-contract_df = fetch_option_contracts()
-spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
+@st.cache_data(ttl=3600, show_spinner="Loading contracts…")
+def fetch_option_contracts():
+    params = {"instrument_key": f"{EXCHANGE}|{SYMBOL}"}
+    r = requests.get(API_OP_CONTRACTS, headers=HEADERS, params=params)
+    response = r.json()
+    if "data" not in response:
+        st.error(f"Contracts API failed: {response}")
+        st.stop()
+    df = pd.DataFrame(response["data"])
+    df["strike_price"] = df["strike_price"].astype(float)
+    df["expiry"] = pd.to_datetime(df["expiry"]).dt.date
+    return df
 
-# --- Expiry selection ---
-expiry_list = sorted(contract_df["expiry"].unique())
-nearest_expiry = get_nearest_expiry(contract_df)
-expiry = st.selectbox("Option Expiry", expiry_list,
-                      index=expiry_list.index(nearest_expiry))
+@st.cache_data(ttl=30)
+def fetch_spot_price(spot_instrument_key):
+    r = requests.get(API_LTP, headers=HEADERS, params={"instrument_key": spot_instrument_key})
+    response = r.json()
+    key_in_data = spot_instrument_key.replace("|", ":")
+    if "data" in response and key_in_data in response["data"]:
+        return float(response["data"][key_in_data].get("last_price", 0))
+    st.error(f"Error fetching spot price: {response}")
+    st.stop()
 
-# --- Select strikes if not yet selected or day changed ---
+def get_nearest_expiry(contract_df):
+    today = datetime.now().date()
+    return contract_df[contract_df["expiry"] >= today]["expiry"].min()
+
+def select_option_strikes(contract_df, spot, expiry, n=5):
+    df_expiry = contract_df[contract_df["expiry"] == expiry]
+    strikes = np.sort(df_expiry["strike_price"].unique())
+    idx_atm = (np.abs(strikes - spot)).argmin()
+    atm_strike = strikes[idx_atm]
+
+    ce_itm = strikes[max(0, idx_atm - n):idx_atm][::-1]
+    ce_atm = np.array([atm_strike])
+    ce_otm = strikes[idx_atm + 1:idx_atm + 1 + n]
+
+    pe_itm = strikes[idx_atm + 1:idx_atm + 1 + n]
+    pe_atm = np.array([atm_strike])
+    pe_otm = strikes[max(0, idx_atm - n):idx_atm][::-1]
+
+    ce_strikes = np.concatenate([ce_itm, ce_atm, ce_otm])
+    pe_strikes = np.concatenate([pe_itm, pe_atm, pe_otm])
+
+    contract = lambda strike, inst_type: df_expiry[
+        (df_expiry["strike_price"] == strike) & (df_expiry["instrument_type"] == inst_type)
+    ].iloc[0]
+
+    selection = []
+    for strike in ce_strikes:
+        selection.append(contract(strike, "CE"))
+    for strike in pe_strikes:
+        selection.append(contract(strike, "PE"))
+
+    return pd.DataFrame(selection)
+
+def poll_greeks_ltp(inst_keys):
+    ikeys_str = ",".join(inst_keys)
+    data = {}
+    r = requests.get(API_LTP, headers=HEADERS, params={"instrument_key": ikeys_str})
+    ltp_resp = r.json().get("data", {})
+    r = requests.get(API_GREEKS, headers=HEADERS, params={"instrument_key": ikeys_str})
+    greeks_resp = r.json().get("data", {})
+    for ikey in inst_keys:
+        ltp = ltp_resp.get(ikey, {}).get("ltp", np.nan)
+        g = greeks_resp.get(ikey, {})
+        data[ikey] = {"ltp": ltp}
+        for greek in ["delta", "gamma", "vega", "theta", "rho"]:
+            data[ikey][greek] = g.get(greek, None)
+    return data
+
+def black_scholes_greeks(S, K, T, sigma, instrument_type, r=0.05):
+    if T <= 0 or sigma <= 0:
+        return dict(delta=0, gamma=0, vega=0, theta=0)
+    d1 = (np.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    call = instrument_type == "CE"
+    delta = norm.cdf(d1) if call else -norm.cdf(-d1)
+    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
+    vega = S * norm.pdf(d1) * np.sqrt(T) / 100
+    theta_call = (-S * norm.pdf(d1) * sigma / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)) / 365
+    theta_put = (-S * norm.pdf(d1) * sigma / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2)) / 365
+    theta = theta_call if call else theta_put
+    return dict(delta=delta, gamma=gamma, vega=vega, theta=theta)
+
+def get_years_to_expiry(expiry_date):
+    now = datetime.now()
+    expiry = datetime.combine(expiry_date, time(15, 30))
+    return max(1e-6, (expiry - now).total_seconds() / (365.0 * 86400))
+
+def fallback_compute(contract, spot, ltp):
+    K = contract["strike_price"]
+    T = get_years_to_expiry(contract["expiry"])
+    instrument_type = contract["instrument_type"]
+    sigma = 0.2
+    return black_scholes_greeks(spot, K, T, sigma, instrument_type)
+
 IST = ZoneInfo("Asia/Kolkata")
 now = datetime.now(IST)
 today = now.date()
 strike_lock_time = datetime.combine(today, time(9, 16), IST)
+start_poll = datetime.combine(today, time(9, 20), IST)
+end_poll = datetime.combine(today, time(15, 20), IST)
 
-if ("strike_df" not in st.session_state
-        or st.session_state.get("strikes_for_day") != (str(today), expiry)):
+contract_df = fetch_option_contracts()
+spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
+expiry_list = sorted(contract_df["expiry"].unique())
+expiry = st.selectbox("Option Expiry", expiry_list, index=expiry_list.index(get_nearest_expiry(contract_df)))
+
+st.sidebar.info("Strikes are fixed at 09:16 each day.")
+
+if "strike_df" not in st.session_state or st.session_state.get("strikes_for_day") != (str(today), expiry):
     if now < strike_lock_time:
         st.info("Waiting for strike selection at 09:16 IST…")
         st.stop()
     else:
         sel_df = select_option_strikes(contract_df, spot_price, expiry, n=STRIKES_TO_PICK)
-
-        # Filter strikes divisible by 100 plus ATM forcibly included
-        filtered_df = sel_df[sel_df["strike_price"] % 100 == 0].sort_values(
-            by=["instrument_type", "strike_price"]
-        )
+        filtered_df = sel_df[sel_df["strike_price"] % 100 == 0].sort_values(by=["instrument_type", "strike_price"])
         st.session_state["strike_df"] = filtered_df.copy()
         st.session_state["strikes_for_day"] = (str(today), expiry)
 
 display_df = st.session_state["strike_df"]
-
-# Define keys_monitored here!
 keys_monitored = list(display_df["instrument_key"])
 
-# --- Live polling setup ---
-start_poll = datetime.combine(today, time(9, 20), IST)
-end_poll = datetime.combine(today, time(15, 20), IST)
-
 refresh_count = st_autorefresh(interval=5000, limit=1000, key="greeks_refresh")
-table_placeholder = st.empty()
 
 if start_poll <= now <= end_poll:
     datalist = st.session_state.get("greek_ts", [])
 
-    # Poll Greeks once on each refresh
     greek_data = poll_greeks_ltp(keys_monitored)
     timestamp = datetime.now(IST)
 
@@ -91,11 +167,7 @@ if start_poll <= now <= end_poll:
         ltp = gd.get("ltp", float("nan"))
         row.update(
             {
-                f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": (
-                    gd.get(k)
-                    if gd.get(k) not in [None, ""]
-                    else fallback_compute(contract, spot_price, ltp).get(k, float("nan"))
-                )
+                f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": (gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan")))
                 for k in ["delta", "gamma", "vega", "theta", "rho"]
             }
         )
@@ -105,17 +177,10 @@ if start_poll <= now <= end_poll:
 
     df = pd.DataFrame(datalist)
 
-    # Display styled strikes table
     styled_df = display_df[["instrument_type", "strike_price", "expiry"]].copy()
     styled_df["strike_price"] = styled_df["strike_price"].astype(int)
     styled_df["expiry"] = pd.to_datetime(styled_df["expiry"]).dt.strftime("%Y-%m-%d")
-    styled_df = styled_df.rename(
-        columns={
-            "instrument_type": "Option Type",
-            "strike_price": "Strike Price",
-            "expiry": "Expiry Date",
-        }
-    )
+    styled_df = styled_df.rename(columns={"instrument_type": "Option Type", "strike_price": "Strike Price", "expiry": "Expiry Date"})
 
     def highlight_option_type(row):
         if row["Option Type"] == "CE":
@@ -125,11 +190,8 @@ if start_poll <= now <= end_poll:
         else:
             return [""] * len(row)
 
-    table_placeholder.dataframe(
-        styled_df.style.apply(highlight_option_type, axis=1), height=400, use_container_width=True
-    )
+    st.dataframe(styled_df.style.apply(highlight_option_type, axis=1), height=400, use_container_width=True)
 
-    # Plot Greeks 2x2
     greek_metrics = ["delta", "theta", "vega", "rho"]
     names_for_caption = {"delta": "Delta", "theta": "Theta", "vega": "Vega", "rho": "Rho"}
     col1, col2 = st.columns(2)
@@ -148,7 +210,6 @@ if start_poll <= now <= end_poll:
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-    # Download CSV Button
     if not df.empty:
         csv_buffer = io.StringIO()
         df.to_csv(csv_buffer, index=False)
