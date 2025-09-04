@@ -1,11 +1,11 @@
-import time
+import time as pytime
+from datetime import datetime, timedelta, time
 from streamlit_autorefresh import st_autorefresh
 import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from datetime import datetime, timedelta, time
 from scipy.stats import norm
 from zoneinfo import ZoneInfo
 import io
@@ -253,7 +253,7 @@ if start_poll <= now <= end_poll:
             fig = px.line(df, x="timestamp", y=chosen, title=f"{metric.upper()} Time Series")
             charts_placeholder.plotly_chart(fig, use_container_width=True)
 
-        time.sleep(1)  # Wait before next poll/update
+        pytime.sleep(1)  # Wait before next poll/update
 
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
