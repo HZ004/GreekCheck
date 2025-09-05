@@ -25,7 +25,8 @@ SERVICE_ACCOUNT_FILE = temp_path
   # Path to your JSON key file in Render
 SPREADSHEET_NAME = "Upstox-Greeks"  # Replace with your sheet name
 
-scopes = ['https://www.googleapis.com/auth/spreadsheets']
+scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+
 creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
 gc = gspread.authorize(creds)
 sheet = gc.open(SPREADSHEET_NAME).sheet1  # Use the first sheet
