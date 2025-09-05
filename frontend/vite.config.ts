@@ -1,0 +1,9 @@
+your-repo/
+  frontend/
+    vite.config.ts
+    package.json
+    index.html
+    src/
+      PlotlyStreamer.tsx
+      main.tsx
+      ...
