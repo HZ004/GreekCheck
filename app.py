@@ -132,7 +132,7 @@ def fallback_compute(contract, spot, ltp):
 IST = ZoneInfo("Asia/Kolkata")
 now = datetime.now(IST)
 today = now.date()
-strike_lock_time = datetime.combine(today, time(9, 16), IST)
+strike_lock_time = datetime.combine(today, time(9, 20), IST)
 start_poll = datetime.combine(today, time(9, 20), IST)
 end_poll = datetime.combine(today, time(15, 20), IST)
 
@@ -141,11 +141,11 @@ spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
 expiry_list = sorted(contract_df["expiry"].unique())
 expiry = st.selectbox("Option Expiry", expiry_list, index=expiry_list.index(get_nearest_expiry(contract_df)))
 
-st.sidebar.info("Strikes are fixed at 09:16 each day.")
+st.sidebar.info("Strikes are fixed at 09:20 each day.")
 
 if "strike_df" not in st.session_state or st.session_state.get("strikes_for_day") != (str(today), expiry):
     if now < strike_lock_time:
-        st.info("Waiting for strike selection at 09:16 IST…")
+        st.info("Waiting for strike selection at 09:20 IST…")
         st.stop()
     else:
         sel_df = select_option_strikes(contract_df, spot_price, expiry, n=STRIKES_TO_PICK)
