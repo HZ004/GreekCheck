@@ -170,22 +170,36 @@ if start_poll <= now <= end_poll:
     greek_data = poll_greeks_ltp(keys_monitored)
     timestamp = datetime.now(IST)
     row = {"timestamp": timestamp}
+
     for _, contract in display_df.iterrows():
         ikey = contract["instrument_key"]
         gd = greek_data.get(ikey, {})
         ltp = gd.get("ltp", float("nan"))
-        # Write ltp with correct suffix and ensure it's included
+        
         row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_ltp"] = ltp
-        for k in ["delta", "gamma", "theta"]:
-            row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}"] = (
-                gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan"))
-            )
+    
+        delta_val = gd.get("delta", None)
+        # Use fallback only if delta is missing/null/empty
+        if delta_val in [None, ""]:
+            delta_val = fallback_compute(contract, spot_price, ltp).get("delta", float("nan"))
+        # Apply absolute value for PE delta
+        if contract["instrument_type"] == "PE" and isinstance(delta_val, (int, float)) and not pd.isna(delta_val):
+            delta_val = abs(delta_val)
+    
+        row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_delta"] = delta_val
+    
+        for k in ["gamma", "theta"]:
+            val = gd.get(k, None)
+            if val in [None, ""]:
+                val = fallback_compute(contract, spot_price, ltp).get(k, float("nan"))
+            row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}"] = val
+
     
     datalist.append(row)
     st.session_state["greek_ts"] = datalist
     df = pd.DataFrame(datalist)
 
-    st.write("Selected strikes and contract details:", display_df)
+    # st.write("Selected strikes and contract details:", display_df)
     
     greek_metrics = ["ltp", "delta", "gamma", "theta"]
     names_for_caption = {
