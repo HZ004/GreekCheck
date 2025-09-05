@@ -4,4 +4,4 @@ requests
 pandas
 numpy
 plotly
-
+scipy
