@@ -2,7 +2,7 @@ name: Keep Render Alive Ping
 
 on:
   schedule:
-    - cron: '*/3 3-10 * * *'  # Every 3 minutes between 3 AM and 10 AM UTC
+    - cron: '*/3 3-10 * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,41 +10,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
 
-      - name: Run inline keep-alive ping script
+      - name: Install requests
+        run: pip install requests
+
+      - name: Run ping_service.py
         env:
           SERVICE_URL: ${{ secrets.SERVICE_URL }}
-        run: |
-          python -c "
-import os
-import datetime
-import requests
-
-def main():
-    SERVICE_URL = os.getenv('SERVICE_URL')
-    if not SERVICE_URL:
-        print('Error: SERVICE_URL environment variable not set.')
-        return
-
-    IST_OFFSET = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-
-    now = datetime.datetime.now(IST_OFFSET)
-    hour, minute = now.hour, now.minute
-    print(f'Script run at {now.isoformat()}')
-    try:
-        if (hour == 9 and minute >= 10) or (10 <= hour < 15) or (hour == 15 and minute <= 40):
-            print(f'Pinging service at IST time {now.isoformat()}')
-            response = requests.get(SERVICE_URL, timeout=10)
-            print(f'Ping status code: {response.status_code}')
-        else:
-            print(f'Outside active ping hours at {now.isoformat()}')
-    except Exception as e:
-        print(f'Ping failed: {e}')
-
-if __name__ == '__main__':
-    main()
-"
+        run: python ping_service.py
