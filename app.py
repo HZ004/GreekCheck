@@ -5,11 +5,11 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
-import plotly.express as px
 from scipy.stats import norm
 from zoneinfo import ZoneInfo
 import io
 import os
+import json
 
 st.set_page_config(layout="wide")
 st.title("Upstox Live Options Greeks Dashboard")
@@ -23,6 +23,15 @@ if not upstox_token:
 EXCHANGE = "NSE_INDEX"
 SYMBOL = "Nifty 50"
 STRIKES_TO_PICK = 5
+
+spot_instrument_key = f"{EXCHANGE}|{SYMBOL}"
+spot_price = fetch_spot_price(spot_instrument_key)
+
+st.markdown(f"""
+### Current {SYMBOL} LTP: <span style='color:green; font-weight:bold;'>{spot_price:.2f}</span>
+""", unsafe_allow_html=True)
+
+
 API_OP_CONTRACTS = "https://api.upstox.com/v2/option/contract"
 API_GREEKS = "https://api.upstox.com/v3/market-quote/option-greek"
 API_LTP = "https://api.upstox.com/v3/market-quote/ltp"
@@ -81,36 +90,19 @@ def select_option_strikes(contract_df, spot, expiry, n=5):
 def poll_greeks_ltp(inst_keys):
     ikeys_str = ",".join(inst_keys)
     data = {}
-
-    # Get response dictionaries
     r = requests.get(API_LTP, headers=HEADERS, params={"instrument_key": ikeys_str})
     ltp_resp = r.json().get("data", {})
     r = requests.get(API_GREEKS, headers=HEADERS, params={"instrument_key": ikeys_str})
     greeks_resp = r.json().get("data", {})
-
-    # Build instrument_key → LTP mapping using "instrument_token"
-    ltp_map = {}
-    for k, v in ltp_resp.items():
-        token = v.get("instrument_token")
-        if token:
-            ltp_map[token] = v.get("last_price", np.nan)
-    # Build instrument_key → Greeks mapping using "instrument_token"
-    greeks_map = {}
-    for k, v in greeks_resp.items():
-        token = v.get("instrument_token")
-        if token:
-            greeks_map[token] = v
-
-    # Now, look up by instrument_key
+    ltp_map = {v.get("instrument_token"): v.get("last_price", np.nan) for v in ltp_resp.values() if v.get("instrument_token")}
+    greeks_map = {v.get("instrument_token"): v for v in greeks_resp.values() if v.get("instrument_token")}
     for ikey in inst_keys:
         ltp = ltp_map.get(ikey, np.nan)
         g = greeks_map.get(ikey, {})
         data[ikey] = {"ltp": ltp}
-        # Copy the remaining greek metrics (null if not available)
         for greek in ["delta", "gamma", "theta"]:
             data[ikey][greek] = g.get(greek, None)
     return data
-
 
 def black_scholes_greeks(S, K, T, sigma, instrument_type, r=0.05):
     if T <= 0 or sigma <= 0:
@@ -144,10 +136,12 @@ today = now.date()
 strike_lock_time = datetime.combine(today, time(9, 20), IST)
 start_poll = datetime.combine(today, time(9, 20), IST)
 end_poll = datetime.combine(today, time(15, 20), IST)
+
 contract_df = fetch_option_contracts()
 spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
 expiry_list = sorted(contract_df["expiry"].unique())
 expiry = st.selectbox("Option Expiry", expiry_list, index=expiry_list.index(get_nearest_expiry(contract_df)))
+
 st.sidebar.info("Strikes are fixed at 09:20 each day.")
 
 if "strike_df" not in st.session_state or st.session_state.get("strikes_for_day") != (str(today), expiry):
@@ -165,93 +159,186 @@ keys_monitored = list(display_df["instrument_key"])
 
 refresh_count = st_autorefresh(interval=5000, limit=1000, key="greeks_refresh")
 
+# Initialize or incrementally append new poll values
 if start_poll <= now <= end_poll:
-    datalist = st.session_state.get("greek_ts", [])
     greek_data = poll_greeks_ltp(keys_monitored)
     timestamp = datetime.now(IST)
-    row = {"timestamp": timestamp}
 
+    if "greek_ts" not in st.session_state:
+        st.session_state["greek_ts"] = []
+
+    # Build new row
+    row = {"timestamp": timestamp.isoformat()}
     for _, contract in display_df.iterrows():
         ikey = contract["instrument_key"]
         gd = greek_data.get(ikey, {})
         ltp = gd.get("ltp", float("nan"))
-        
         row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_ltp"] = ltp
-    
+
         delta_val = gd.get("delta", None)
-        # Use fallback only if delta is missing/null/empty
         if delta_val in [None, ""]:
             delta_val = fallback_compute(contract, spot_price, ltp).get("delta", float("nan"))
-        # Apply absolute value for PE delta
         if contract["instrument_type"] == "PE" and isinstance(delta_val, (int, float)) and not pd.isna(delta_val):
             delta_val = abs(delta_val)
-    
         row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_delta"] = delta_val
-    
+
         for k in ["gamma", "theta"]:
             val = gd.get(k, None)
             if val in [None, ""]:
                 val = fallback_compute(contract, spot_price, ltp).get(k, float("nan"))
             row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}"] = val
 
-    
-    datalist.append(row)
-    st.session_state["greek_ts"] = datalist
-    df = pd.DataFrame(datalist)
+    st.session_state["greek_ts"].append(row)
 
-    # st.write("Selected strikes and contract details:", display_df)
-    
-    greek_metrics = ["ltp", "delta", "gamma", "theta"]
-    names_for_caption = {
-        "ltp": "Last Traded Price",
-        "delta": "Delta",
-        "gamma": "Gamma",
-        "theta": "Theta"
-    }
-
-
-    col1, col2 = st.columns(2)
-
-    for metric in greek_metrics:
-        ce_cols = [c for c in df.columns if c.startswith("CE_") and c.endswith(f"_{metric}")]
-        pe_cols = [c for c in df.columns if c.startswith("PE_") and c.endswith(f"_{metric}")]
-
-        y_min, y_max = None, None
-        if ce_cols or pe_cols:
-            combined_data = pd.concat([
-                df[ce_cols] if ce_cols else pd.DataFrame(),
-                df[pe_cols] if pe_cols else pd.DataFrame()
-            ], axis=1)
-            y_min = combined_data.min().min()
-            y_max = combined_data.max().max()
-        y_range = [y_min, y_max] if y_min is not None and y_max is not None else None
-
-        with col1:
-            if ce_cols:
-                fig_ce = px.line(df, x="timestamp", y=ce_cols,
-                                 title=f"Call (CE) {names_for_caption[metric]} Time Series",
-                                 labels={"value": names_for_caption[metric], "timestamp": "Time"})
-                if y_range:
-                    fig_ce.update_yaxes(range=y_range)
-                st.plotly_chart(fig_ce, use_container_width=True)
-        with col2:
-            if pe_cols:
-                fig_pe = px.line(df, x="timestamp", y=pe_cols,
-                                 title=f"Put (PE) {names_for_caption[metric]} Time Series",
-                                 labels={"value": names_for_caption[metric], "timestamp": "Time"})
-                if y_range:
-                    fig_pe.update_yaxes(range=y_range)
-                st.plotly_chart(fig_pe, use_container_width=True)
-
-    if not df.empty:
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False)
-        csv_bytes = csv_buffer.getvalue().encode()
-        st.download_button(
-            label="Download Full Day Greeks CSV",
-            data=csv_bytes,
-            file_name=f"greeks_data_{now.strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
+
+# Convert data to DataFrame for sending incremental updates
+df = pd.DataFrame(st.session_state.get("greek_ts", []))
+if df.empty:
+    st.write("Waiting for data to accumulate…")
+    st.stop()
+
+# The metric list and their display names
+greek_metrics = ["ltp", "delta", "gamma", "theta"]
+names_for_caption = {
+    "ltp": "Last Traded Price",
+    "delta": "Delta",
+    "gamma": "Gamma",
+    "theta": "Theta"
+}
+
+# Maintain last sent timestamp index in session state
+last_sent_idx = st.session_state.get("last_sent_idx", 0)
+
+# Prepare new data points to send as JSON
+new_data = df.iloc[last_sent_idx:]
+st.session_state["last_sent_idx"] = len(df)
+
+# Organize data per Greek and per Option Type for JS
+def prepare_series_data(dataframe, metric):
+    # Returns a list of dicts [{"name": col_name, "xs": [...], "ys": [...]}]
+    series = []
+    timestamp_list = list(dataframe["timestamp"])
+    for col in dataframe.columns:
+        if col.endswith(f"_{metric}"):
+            ys = dataframe[col].tolist()
+            # Deliver only x,y for new_data portion
+            series.append({"name": col, "xs": timestamp_list, "ys": ys})
+    return series
+
+# Prepare all series JSON object for new points for all metrics
+all_series = {}
+for metric in greek_metrics:
+    all_series[metric] = prepare_series_data(new_data, metric)
+
+# Build JSON string for embedding
+json_data = json.dumps(all_series)
+
+# Create custom HTML + JS embedding plots with smooth incremental updates
+html_string = f"""
+<html>
+<head>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<style>
+  body {{ margin:0; }}
+  .plot-container {{ width: 100%; height: 600px; }}
+</style>
+</head>
+<body>
+  <h3>Upstox Live Options Greeks - Incremental Plot</h3>
+  <div style="display: flex; flex-wrap: wrap;">
+    <div id="CE_ltp" class="plot-container"></div>
+    <div id="PE_ltp" class="plot-container"></div>
+    <div id="CE_delta" class="plot-container"></div>
+    <div id="PE_delta" class="plot-container"></div>
+    <div id="CE_gamma" class="plot-container"></div>
+    <div id="PE_gamma" class="plot-container"></div>
+    <div id="CE_theta" class="plot-container"></div>
+    <div id="PE_theta" class="plot-container"></div>
+  </div>
+<script>
+  let newPointData = {json_data};
+
+  // For each metric, maintain full trace data
+  const fullData = {{}};
+
+  const plotDivs = {{
+    "ltp": ["CE_ltp", "PE_ltp"],
+    "delta": ["CE_delta", "PE_delta"],
+    "gamma": ["CE_gamma", "PE_gamma"],
+    "theta": ["CE_theta", "PE_theta"]
+  }};
+
+  // Initialize plots with empty traces
+  for (const metric in plotDivs) {{
+    plotDivs[metric].forEach(divId => {{
+      const container = document.getElementById(divId);
+      Plotly.newPlot(container, [], {{
+        margin: {{ t: 30 }},
+        xaxis: {{ title: "Time" }},
+        yaxis: {{ title: metric.charAt(0).toUpperCase() + metric.slice(1) }},
+        showlegend: true
+      }});
+      fullData[divId] = {{}};
+    }});
+  }}
+
+  // Helper: split col name to extract CE or PE
+  function getOptionType(col) {{
+    return col.startsWith("CE_") ? "CE" : "PE";
+  }}
+
+  for (const metric in newPointData) {{
+    const series = newPointData[metric];
+
+    series.forEach(serie => {{
+      const optionType = getOptionType(serie.name);
+      const divId = optionType + "_" + metric;
+      const container = document.getElementById(divId);
+
+      if (!fullData[divId][serie.name]) {{
+        // Init trace
+        fullData[divId][serie.name] = {{
+          x: [],
+          y: [],
+          mode: "lines",
+          name: serie.name
+        }};
+        Plotly.addTraces(container, fullData[divId][serie.name]);
+      }}
+
+      // Append new points to trace
+      const trace = fullData[divId][serie.name];
+      // Compute new points from last length to current
+      const lastLen = trace.x.length;
+      const new_x = serie.xs.slice(lastLen);
+      const new_y = serie.ys.slice(lastLen);
+
+      trace.x = trace.x.concat(new_x);
+      trace.y = trace.y.concat(new_y);
+
+      Plotly.extendTraces(container, {{
+        x: [new_x],
+        y: [new_y]
+      }}, [Object.keys(fullData[divId]).indexOf(serie.name)]);
+    }});
+  }}
+</script>
+</body>
+</html>
+"""
+
+st.components.v1.html(html_string, height=850, scrolling=True)
+
+# Provide CSV download button
+if not df.empty:
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_bytes = csv_buffer.getvalue().encode()
+    st.download_button(
+        label="Download Full Day Greeks CSV",
+        data=csv_bytes,
+        file_name=f"greeks_data_{now.strftime('%Y%m%d')}.csv",
+        mime="text/csv"
+    )
