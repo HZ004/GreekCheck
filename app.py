@@ -11,46 +11,48 @@ from google.oauth2.service_account import Credentials
 from scipy.stats import norm
 import io
 import plotly.express as px
+from streamlit_autorefresh import st_autorefresh
 
-service_account_json = os.getenv("SERVICE_ACCOUNT_JSON")
-if not service_account_json:
-    raise ValueError("SERVICE_ACCOUNT_JSON env var not set")
+# --- Google Sheets Setup ---
+# Use secret file uploaded to Render at /var/opt/render/secrets/service_account.json or fallback to env var
+SECRET_FILE_PATH = "/var/opt/render/secrets/service_account.json"
+if os.path.exists(SECRET_FILE_PATH):
+    SERVICE_ACCOUNT_FILE = SECRET_FILE_PATH
+else:
+    service_account_json = os.getenv("SERVICE_ACCOUNT_JSON")
+    if not service_account_json:
+        raise ValueError("Service account credentials not found. Set SERVICE_ACCOUNT_JSON env var or upload secret file.")
+    tmp_path = "/tmp/service_account.json"
+    with open(tmp_path, "w") as f:
+        f.write(service_account_json)
+    SERVICE_ACCOUNT_FILE = tmp_path
 
-temp_path = "/tmp/service_account.json"
-with open(temp_path, "w") as f:
-    f.write(service_account_json)
+SPREADSHEET_NAME = "Upstox-Greeks"  # Replace with your actual sheet name
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
-SERVICE_ACCOUNT_FILE = temp_path
-
-  # Path to your JSON key file in Render
-SPREADSHEET_NAME = "Upstox-Greeks"  # Replace with your sheet name
-
-scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-
-creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
+creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 gc = gspread.authorize(creds)
-sheet = gc.open(SPREADSHEET_NAME).sheet1  # Use the first sheet
+sheet = gc.open(SPREADSHEET_NAME).sheet1  # First sheet
 
-def append_greeks_to_sheets(df):
-    # Get all existing records to check if sheet is empty
+def append_greeks_to_sheets(df: pd.DataFrame):
+    """Append Greeks DataFrame to Google Sheet; writes headers if empty."""
     existing = sheet.get_all_values()
     if not existing:
-        # Write headers if sheet empty
         sheet.append_row(list(df.columns))
-    # Append rows
     for _, row in df.iterrows():
         sheet.append_row(row.astype(str).tolist())
 
-def read_greeks_from_sheets():
+def read_greeks_from_sheets() -> pd.DataFrame:
     records = sheet.get_all_records()
     if not records:
         return pd.DataFrame()
     return pd.DataFrame(records)
 
-# Upstox API config and helper functions
+# --- Upstox API Config & Helper Functions ---
 EXCHANGE = "NSE_INDEX"
 SYMBOL = "Nifty 50"
 STRIKES_TO_PICK = 5
+
 UPSTOX_TOKEN = os.getenv("UPSTOX_TOKEN")
 if not UPSTOX_TOKEN:
     st.error("UPSTOX_TOKEN environment variable not set")
@@ -63,7 +65,7 @@ API_LTP = "https://api.upstox.com/v3/market-quote/ltp"
 
 IST = ZoneInfo("Asia/Kolkata")
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner="Loading option contracts…")
 def fetch_option_contracts():
     params = {"instrument_key": f"{EXCHANGE}|{SYMBOL}"}
     r = requests.get(API_OP_CONTRACTS, headers=HEADERS, params=params)
@@ -164,14 +166,22 @@ def fallback_compute(contract, spot, ltp):
     sigma = 0.2
     return black_scholes_greeks(spot, K, T, sigma, instrument_type)
 
-### Main App Logic ###
+# --- Polling Window Setup ---
+now = datetime.now(IST)
+today = now.date()
+strike_lock_time = datetime.combine(today, time(9, 20), IST)
+start_poll = datetime.combine(today, time(9, 20), IST)
+end_poll = datetime.combine(today, time(15, 20), IST)
+now_ist = now.time()
 
+# --- Streamlit UI and Logic ---
 st.set_page_config(layout="wide")
 st.title("Upstox Live Options Greeks Dashboard using Google Sheets")
 
 contract_df = fetch_option_contracts()
 spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
 expiry_list = sorted(contract_df["expiry"].unique())
+
 expiry = st.selectbox("Option Expiry", expiry_list, index=expiry_list.index(get_nearest_expiry(contract_df)))
 
 sel_df = select_option_strikes(contract_df, spot_price, expiry, n=STRIKES_TO_PICK)
@@ -181,30 +191,26 @@ keys_monitored = list(filtered_df["instrument_key"])
 
 st.sidebar.info("Strikes are fixed at 09:20 each day.")
 
-# Poll Greeks & build data rows to append to Google Sheets
+# Poll Greeks + Build new rows to append
 greek_data = poll_greeks_ltp(keys_monitored)
-timestamp = datetime.now(IST).isoformat()
+timestamp = now.isoformat()
 
 records = []
 for _, contract in filtered_df.iterrows():
     ikey = contract["instrument_key"]
     gd = greek_data.get(ikey, {})
     ltp = gd.get("ltp", float("nan"))
-
     delta_val = gd.get("delta", None)
     if delta_val in [None, ""]:
         delta_val = fallback_compute(contract, spot_price, ltp).get("delta", float("nan"))
     if contract["instrument_type"] == "PE" and isinstance(delta_val, (int, float)) and not pd.isna(delta_val):
         delta_val = abs(delta_val)
-
     gamma_val = gd.get("gamma", None)
     if gamma_val in [None, ""]:
         gamma_val = fallback_compute(contract, spot_price, ltp).get("gamma", float("nan"))
-
     theta_val = gd.get("theta", None)
     if theta_val in [None, ""]:
         theta_val = fallback_compute(contract, spot_price, ltp).get("theta", float("nan"))
-
     record = {
         "timestamp": timestamp,
         "instrument_key": ikey,
@@ -219,23 +225,36 @@ for _, contract in filtered_df.iterrows():
     records.append(record)
 
 new_data_df = pd.DataFrame(records)
-append_greeks_to_sheets(new_data_df)  # Append new data to Google Sheets
 
-# Read full historical data back from Google Sheets
+# Append to Google Sheets ONLY within polling time window
+if start_poll.time() <= now_ist <= end_poll.time():
+    append_greeks_to_sheets(new_data_df)
+else:
+    st.info("Outside polling hours. Data not appended.")
+
+# Read all historical Greeks data from Google Sheets
 historical_df = read_greeks_from_sheets()
 
 if historical_df.empty:
     st.info("No historical data found in Google Sheets yet. Data will populate after first append.")
 else:
     st.subheader("Historical Greeks Data (from Google Sheets)")
+
+    # Convert timestamp to datetime safely
+    if "timestamp" in historical_df.columns:
+        historical_df["timestamp"] = pd.to_datetime(historical_df["timestamp"], errors='coerce')
+    else:
+        st.warning("Missing 'timestamp' column in historical data.")
+
     st.dataframe(historical_df)
 
-    # Example visualization: Plot delta time series for CE strikes
-    historical_df["timestamp"] = pd.to_datetime(historical_df["timestamp"])
-    ce_cols = historical_df[historical_df["instrument_type"] == "CE"]
-
-    if not ce_cols.empty:
-        fig = px.line(ce_cols, x="timestamp", y="delta",
-                      title="Call Option (CE) Delta Over Time",
+    # Plot example: delta time series for Calls (CE)
+    ce_df = historical_df[historical_df["instrument_type"] == "CE"]
+    if not ce_df.empty:
+        fig = px.line(ce_df, x="timestamp", y="delta",
+                      title="Call Options (CE) Delta Over Time",
                       labels={"delta": "Delta", "timestamp": "Timestamp"})
         st.plotly_chart(fig, use_container_width=True)
+
+# Autorefresh every 5 seconds up to 1000 times
+refresh_count = st_autorefresh(interval=5000, limit=1000, key="greeks_refresh")
