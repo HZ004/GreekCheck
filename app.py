@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import io
 import os
 import json
+import streamlit.components.v1 as components
 
 st.set_page_config(layout="wide")
 st.title("Upstox Live Options Greeks Dashboard")
@@ -23,7 +24,6 @@ if not upstox_token:
 EXCHANGE = "NSE_INDEX"
 SYMBOL = "Nifty 50"
 STRIKES_TO_PICK = 5
-
 
 API_OP_CONTRACTS = "https://api.upstox.com/v2/option/contract"
 API_GREEKS = "https://api.upstox.com/v3/market-quote/option-greek"
@@ -130,15 +130,10 @@ strike_lock_time = datetime.combine(today, time(9, 20), IST)
 start_poll = datetime.combine(today, time(9, 20), IST)
 end_poll = datetime.combine(today, time(15, 20), IST)
 
-spot_instrument_key = f"{EXCHANGE}|{SYMBOL}"
-spot_price = fetch_spot_price(spot_instrument_key)
-st.markdown(f"""
-### Current {SYMBOL} LTP: <span style='color:green; font-weight:bold;'>{spot_price:.2f}</span>
-""", unsafe_allow_html=True)
-
 contract_df = fetch_option_contracts()
 spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
 expiry_list = sorted(contract_df["expiry"].unique())
+
 expiry = st.selectbox("Option Expiry", expiry_list, index=expiry_list.index(get_nearest_expiry(contract_df)))
 
 st.sidebar.info("Strikes are fixed at 09:20 each day.")
@@ -158,7 +153,6 @@ keys_monitored = list(display_df["instrument_key"])
 
 refresh_count = st_autorefresh(interval=5000, limit=1000, key="greeks_refresh")
 
-# Initialize or incrementally append new poll values
 if start_poll <= now <= end_poll:
     greek_data = poll_greeks_ltp(keys_monitored)
     timestamp = datetime.now(IST)
@@ -188,149 +182,41 @@ if start_poll <= now <= end_poll:
             row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}"] = val
 
     st.session_state["greek_ts"].append(row)
-
 else:
     st.info("Live polling active only between 09:20 and 15:20 IST.")
 
-# Convert data to DataFrame for sending incremental updates
 df = pd.DataFrame(st.session_state.get("greek_ts", []))
 if df.empty:
-    st.write("Waiting for data to accumulate…")
+    st.write("Waiting for data to accumulate...")
     st.stop()
 
-# The metric list and their display names
 greek_metrics = ["ltp", "delta", "gamma", "theta"]
-names_for_caption = {
-    "ltp": "Last Traded Price",
-    "delta": "Delta",
-    "gamma": "Gamma",
-    "theta": "Theta"
-}
 
-# Maintain last sent timestamp index in session state
-last_sent_idx = st.session_state.get("last_sent_idx", 0)
-
-# Prepare new data points to send as JSON
-new_data = df.iloc[last_sent_idx:]
-st.session_state["last_sent_idx"] = len(df)
-
-# Organize data per Greek and per Option Type for JS
-def prepare_series_data(dataframe, metric):
-    # Returns a list of dicts [{"name": col_name, "xs": [...], "ys": [...]}]
+def prepare_series(dataframe, metric):
     series = []
-    timestamp_list = list(dataframe["timestamp"])
+    ts_list = dataframe["timestamp"].tolist()
     for col in dataframe.columns:
         if col.endswith(f"_{metric}"):
             ys = dataframe[col].tolist()
-            # Deliver only x,y for new_data portion
-            series.append({"name": col, "xs": timestamp_list, "ys": ys})
+            series.append({"name": col, "xs": ts_list, "ys": ys})
     return series
 
-# Prepare all series JSON object for new points for all metrics
 all_series = {}
 for metric in greek_metrics:
-    all_series[metric] = prepare_series_data(new_data, metric)
+    all_series[metric] = prepare_series(df, metric)
 
-# Build JSON string for embedding
 json_data = json.dumps(all_series)
 
-# Create custom HTML + JS embedding plots with smooth incremental updates
-html_string = f"""
-<html>
-<head>
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-<style>
-  body {{ margin:0; }}
-  .plot-container {{ width: 100%; height: 600px; }}
-</style>
-</head>
-<body>
-  <h3>Upstox Live Options Greeks - Incremental Plot</h3>
-  <div style="display: flex; flex-wrap: wrap;">
-    <div id="CE_ltp" class="plot-container"></div>
-    <div id="PE_ltp" class="plot-container"></div>
-    <div id="CE_delta" class="plot-container"></div>
-    <div id="PE_delta" class="plot-container"></div>
-    <div id="CE_gamma" class="plot-container"></div>
-    <div id="PE_gamma" class="plot-container"></div>
-    <div id="CE_theta" class="plot-container"></div>
-    <div id="PE_theta" class="plot-container"></div>
-  </div>
-<script>
-  let newPointData = {json_data};
+# Declare your React Streamlit component (adjust path to your build folder)
+plotly_streamer = components.declare_component(
+    "plotly_streamer",
+    path="./frontend/build"  # Adjust to where your React component build is located
+)
 
-  // For each metric, maintain full trace data
-  const fullData = {{}};
+# Render the React PlotlyStreamer component with incremental data JSON
+plotly_streamer(dataJson=json_data)
 
-  const plotDivs = {{
-    "ltp": ["CE_ltp", "PE_ltp"],
-    "delta": ["CE_delta", "PE_delta"],
-    "gamma": ["CE_gamma", "PE_gamma"],
-    "theta": ["CE_theta", "PE_theta"]
-  }};
-
-  // Initialize plots with empty traces
-  for (const metric in plotDivs) {{
-    plotDivs[metric].forEach(divId => {{
-      const container = document.getElementById(divId);
-      Plotly.newPlot(container, [], {{
-        margin: {{ t: 30 }},
-        xaxis: {{ title: "Time" }},
-        yaxis: {{ title: metric.charAt(0).toUpperCase() + metric.slice(1) }},
-        showlegend: true
-      }});
-      fullData[divId] = {{}};
-    }});
-  }}
-
-  // Helper: split col name to extract CE or PE
-  function getOptionType(col) {{
-    return col.startsWith("CE_") ? "CE" : "PE";
-  }}
-
-  for (const metric in newPointData) {{
-    const series = newPointData[metric];
-
-    series.forEach(serie => {{
-      const optionType = getOptionType(serie.name);
-      const divId = optionType + "_" + metric;
-      const container = document.getElementById(divId);
-
-      if (!fullData[divId][serie.name]) {{
-        // Init trace
-        fullData[divId][serie.name] = {{
-          x: [],
-          y: [],
-          mode: "lines",
-          name: serie.name
-        }};
-        Plotly.addTraces(container, fullData[divId][serie.name]);
-      }}
-
-      // Append new points to trace
-      const trace = fullData[divId][serie.name];
-      // Compute new points from last length to current
-      const lastLen = trace.x.length;
-      const new_x = serie.xs.slice(lastLen);
-      const new_y = serie.ys.slice(lastLen);
-
-      trace.x = trace.x.concat(new_x);
-      trace.y = trace.y.concat(new_y);
-
-      Plotly.extendTraces(container, {{
-        x: [new_x],
-        y: [new_y]
-      }}, [Object.keys(fullData[divId]).indexOf(serie.name)]);
-    }});
-  }}
-</script>
-</body>
-</html>
-"""
-
-st.components.v1.html(html_string, height=850, scrolling=True)
-
-# Provide CSV download button
+# Optional: CSV download button
 if not df.empty:
     csv_buffer = io.StringIO()
     df.to_csv(csv_buffer, index=False)
