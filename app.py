@@ -24,8 +24,7 @@ EXCHANGE = "NSE_INDEX"
 SYMBOL = "Nifty 50"
 STRIKES_TO_PICK = 5
 
-spot_instrument_key = f"{EXCHANGE}|{SYMBOL}"
-spot_price = fetch_spot_price(spot_instrument_key)
+
 
 st.markdown(f"""
 ### Current {SYMBOL} LTP: <span style='color:green; font-weight:bold;'>{spot_price:.2f}</span>
@@ -136,6 +135,9 @@ today = now.date()
 strike_lock_time = datetime.combine(today, time(9, 20), IST)
 start_poll = datetime.combine(today, time(9, 20), IST)
 end_poll = datetime.combine(today, time(15, 20), IST)
+
+spot_instrument_key = f"{EXCHANGE}|{SYMBOL}"
+spot_price = fetch_spot_price(spot_instrument_key)
 
 contract_df = fetch_option_contracts()
 spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
