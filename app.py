@@ -11,6 +11,8 @@ import io
 import os
 import json
 import streamlit.components.v1 as components
+from greek_component import plotly_streamer
+
 
 st.set_page_config(layout="wide")
 st.title("Upstox Live Options Greeks Dashboard")
@@ -208,10 +210,10 @@ for metric in greek_metrics:
 json_data = json.dumps(all_series)
 
 # Declare your React Streamlit component (adjust path to your build folder)
-plotly_streamer = components.declare_component(
-    "plotly_streamer",
-    path="./frontend/build"  # Adjust to where your React component build is located
-)
+# plotly_streamer = components.declare_component(
+#     "plotly_streamer",
+#     path="./frontend/build"  # Adjust to where your React component build is located
+# )
 
 # Render the React PlotlyStreamer component with incremental data JSON
 plotly_streamer(dataJson=json_data)
