@@ -161,6 +161,8 @@ if start_poll <= now <= end_poll:
             row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}"] = (
                 gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan"))
             )
+    st.write("Example greek_data:", greek_data)
+
     datalist.append(row)
     st.session_state["greek_ts"] = datalist
     df = pd.DataFrame(datalist)
@@ -174,6 +176,13 @@ if start_poll <= now <= end_poll:
         "gamma": "Gamma",
         "theta": "Theta"
     }
+
+    st.write("Keys monitored:", keys_monitored)
+    st.write("Greek data keys:", list(greek_data.keys()))
+    # Let's display a sample for a single key
+    if keys_monitored:
+        example_key = keys_monitored[0]
+        st.write(f"Greek data for first key ({example_key}):", greek_data.get(example_key, {}))
 
     col1, col2 = st.columns(2)
 
