@@ -235,26 +235,37 @@ else:
 # Read all historical Greeks data from Google Sheets
 historical_df = read_greeks_from_sheets()
 
-if historical_df.empty:
-    st.info("No historical data found in Google Sheets yet. Data will populate after first append.")
+# After reading historical_df and converting timestamps
+if not historical_df.empty and "timestamp" in historical_df.columns:
+    historical_df["timestamp"] = pd.to_datetime(historical_df["timestamp"], errors='coerce')
+    
+    # Add date filter widget in sidebar
+    historical_df['date'] = historical_df['timestamp'].dt.date
+    unique_dates = sorted(historical_df['date'].dropna().unique())
+    selected_date = st.sidebar.date_input("Select Date to View Greeks Data", value=unique_dates[-1] if unique_dates else None, min_value=min(unique_dates) if unique_dates else None, max_value=max(unique_dates) if unique_dates else None)
+
+    if selected_date and unique_dates:
+        filtered_df_by_date = historical_df[historical_df['date'] == selected_date]
+        
+        if filtered_df_by_date.empty:
+            st.warning(f"No data found for {selected_date}")
+        else:
+            st.subheader(f"Historical Greeks Data for {selected_date}")
+            # st.dataframe(filtered_df_by_date.drop(columns=['date']))
+            
+            # Plot delta time series for Calls (CE) for selected date
+            ce_df = filtered_df_by_date[filtered_df_by_date['instrument_type'] == 'CE']
+            if not ce_df.empty:
+                fig = px.line(
+                    ce_df.sort_values('timestamp'), 
+                    x='timestamp', y='delta',
+                    title=f"Call Options (CE) Delta Over Time on {selected_date}",
+                    labels={"delta": "Delta", "timestamp": "Time"}
+                )
+                st.plotly_chart(fig, use_container_width=True)
 else:
-    st.subheader("Historical Greeks Data (from Google Sheets)")
+    st.info("No historical data found or 'timestamp' column missing.")
 
-    # Convert timestamp to datetime safely
-    if "timestamp" in historical_df.columns:
-        historical_df["timestamp"] = pd.to_datetime(historical_df["timestamp"], errors='coerce')
-    else:
-        st.warning("Missing 'timestamp' column in historical data.")
-
-    st.dataframe(historical_df)
-
-    # Plot example: delta time series for Calls (CE)
-    ce_df = historical_df[historical_df["instrument_type"] == "CE"]
-    if not ce_df.empty:
-        fig = px.line(ce_df, x="timestamp", y="delta",
-                      title="Call Options (CE) Delta Over Time",
-                      labels={"delta": "Delta", "timestamp": "Timestamp"})
-        st.plotly_chart(fig, use_container_width=True)
 
 # Autorefresh every 5 seconds up to 1000 times
-refresh_count = st_autorefresh(interval=5000, limit=1000, key="greeks_refresh")
+refresh_count = st_autorefresh(interval=5000, key="greeks_refresh")
