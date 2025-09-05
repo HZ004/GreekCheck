@@ -12,7 +12,15 @@ from scipy.stats import norm
 import io
 import plotly.express as px
 
-SERVICE_ACCOUNT_FILE = "/var/opt/render/secrets/service_account.json"
+service_account_json = os.getenv("SERVICE_ACCOUNT_JSON")
+if not service_account_json:
+    raise ValueError("SERVICE_ACCOUNT_JSON env var not set")
+
+temp_path = "/tmp/service_account.json"
+with open(temp_path, "w") as f:
+    f.write(service_account_json)
+
+SERVICE_ACCOUNT_FILE = temp_path
 
   # Path to your JSON key file in Render
 SPREADSHEET_NAME = "Upstox-Greeks"  # Replace with your sheet name
