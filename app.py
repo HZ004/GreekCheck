@@ -169,11 +169,14 @@ if start_poll <= now <= end_poll:
         ikey = contract["instrument_key"]
         gd = greek_data.get(ikey, {})
         ltp = gd.get("ltp", float("nan"))
-        row.update({
-            f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}": 
-            (gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan"))) 
-            for k in ["ltp", "delta", "gamma", "theta"]
-        })
+        row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_ltp"] = ltp
+    
+        # For remaining metrics, use fallback only if no value
+        for k in ["delta", "gamma", "theta"]:
+            row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}"] = (
+                gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan"))
+            )
+
 
     datalist.append(row)
     st.session_state["greek_ts"] = datalist
