@@ -14,7 +14,7 @@ import plotly.express as px
 
 # Google Sheets Setup
 SERVICE_ACCOUNT_FILE = "service_account.json"  # Path to your JSON key file in Render
-SPREADSHEET_NAME = "Your Google Sheet Name Here"  # Replace with your sheet name
+SPREADSHEET_NAME = "Upstox-Greeks"  # Replace with your sheet name
 
 scopes = ['https://www.googleapis.com/auth/spreadsheets']
 creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
