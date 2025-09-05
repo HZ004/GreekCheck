@@ -11,14 +11,11 @@ from zoneinfo import ZoneInfo
 import io
 import os
 
-
-
 st.set_page_config(layout="wide")
 st.title("Upstox Live Options Greeks Dashboard")
 
 # --- User Input ---
 upstox_token = os.getenv("UPSTOX_TOKEN")
-
 if not upstox_token:
     st.error("Upstox access token not found in environment variables. Please set UPSTOX_TOKEN in Render environment.")
     st.stop()
@@ -26,7 +23,6 @@ if not upstox_token:
 EXCHANGE = "NSE_INDEX"
 SYMBOL = "Nifty 50"
 STRIKES_TO_PICK = 5
-
 API_OP_CONTRACTS = "https://api.upstox.com/v2/option/contract"
 API_GREEKS = "https://api.upstox.com/v3/market-quote/option-greek"
 API_LTP = "https://api.upstox.com/v3/market-quote/ltp"
@@ -64,28 +60,22 @@ def select_option_strikes(contract_df, spot, expiry, n=5):
     strikes = np.sort(df_expiry["strike_price"].unique())
     idx_atm = (np.abs(strikes - spot)).argmin()
     atm_strike = strikes[idx_atm]
-
     ce_itm = strikes[max(0, idx_atm - n):idx_atm][::-1]
     ce_atm = np.array([atm_strike])
     ce_otm = strikes[idx_atm + 1:idx_atm + 1 + n]
-
     pe_itm = strikes[idx_atm + 1:idx_atm + 1 + n]
     pe_atm = np.array([atm_strike])
     pe_otm = strikes[max(0, idx_atm - n):idx_atm][::-1]
-
     ce_strikes = np.concatenate([ce_itm, ce_atm, ce_otm])
     pe_strikes = np.concatenate([pe_itm, pe_atm, pe_otm])
-
     contract = lambda strike, inst_type: df_expiry[
         (df_expiry["strike_price"] == strike) & (df_expiry["instrument_type"] == inst_type)
     ].iloc[0]
-
     selection = []
     for strike in ce_strikes:
         selection.append(contract(strike, "CE"))
     for strike in pe_strikes:
         selection.append(contract(strike, "PE"))
-
     return pd.DataFrame(selection)
 
 def poll_greeks_ltp(inst_keys):
@@ -135,12 +125,10 @@ today = now.date()
 strike_lock_time = datetime.combine(today, time(9, 20), IST)
 start_poll = datetime.combine(today, time(9, 20), IST)
 end_poll = datetime.combine(today, time(15, 20), IST)
-
 contract_df = fetch_option_contracts()
 spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
 expiry_list = sorted(contract_df["expiry"].unique())
 expiry = st.selectbox("Option Expiry", expiry_list, index=expiry_list.index(get_nearest_expiry(contract_df)))
-
 st.sidebar.info("Strikes are fixed at 09:20 each day.")
 
 if "strike_df" not in st.session_state or st.session_state.get("strikes_for_day") != (str(today), expiry):
@@ -160,32 +148,25 @@ refresh_count = st_autorefresh(interval=5000, limit=1000, key="greeks_refresh")
 
 if start_poll <= now <= end_poll:
     datalist = st.session_state.get("greek_ts", [])
-
     greek_data = poll_greeks_ltp(keys_monitored)
     timestamp = datetime.now(IST)
-
     row = {"timestamp": timestamp}
     for _, contract in display_df.iterrows():
         ikey = contract["instrument_key"]
         gd = greek_data.get(ikey, {})
         ltp = gd.get("ltp", float("nan"))
+        # Write ltp with correct suffix and ensure it's included
         row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_ltp"] = ltp
-    
-        # For remaining metrics, use fallback only if no value
         for k in ["delta", "gamma", "theta"]:
             row[f"{contract['instrument_type']}_{int(contract['strike_price'])}_{k}"] = (
                 gd.get(k) if gd.get(k) not in [None, ""] else fallback_compute(contract, spot_price, ltp).get(k, float("nan"))
             )
-
-
     datalist.append(row)
     st.session_state["greek_ts"] = datalist
-
     df = pd.DataFrame(datalist)
 
     styled_df = display_df[["instrument_type", "strike_price", "expiry"]].copy()
-    
-    #   st.dataframe(styled_df.style.apply(highlight_option_type, axis=1), height=400, use_container_width=True)
+
     greek_metrics = ["ltp", "delta", "gamma", "theta"]
     names_for_caption = {
         "ltp": "Last Traded Price",
@@ -193,22 +174,23 @@ if start_poll <= now <= end_poll:
         "gamma": "Gamma",
         "theta": "Theta"
     }
-    
+
     col1, col2 = st.columns(2)
-    
+
     for metric in greek_metrics:
         ce_cols = [c for c in df.columns if c.startswith("CE_") and c.endswith(f"_{metric}")]
         pe_cols = [c for c in df.columns if c.startswith("PE_") and c.endswith(f"_{metric}")]
-    
-        # Determine combined y-axis min and max across both CE and PE columns
+
         y_min, y_max = None, None
         if ce_cols or pe_cols:
-            combined_data = pd.concat([df[ce_cols] if ce_cols else pd.DataFrame(),
-                                       df[pe_cols] if pe_cols else pd.DataFrame()], axis=1)
+            combined_data = pd.concat([
+                df[ce_cols] if ce_cols else pd.DataFrame(),
+                df[pe_cols] if pe_cols else pd.DataFrame()
+            ], axis=1)
             y_min = combined_data.min().min()
             y_max = combined_data.max().max()
         y_range = [y_min, y_max] if y_min is not None and y_max is not None else None
-    
+
         with col1:
             if ce_cols:
                 fig_ce = px.line(df, x="timestamp", y=ce_cols,
@@ -217,7 +199,6 @@ if start_poll <= now <= end_poll:
                 if y_range:
                     fig_ce.update_yaxes(range=y_range)
                 st.plotly_chart(fig_ce, use_container_width=True)
-    
         with col2:
             if pe_cols:
                 fig_pe = px.line(df, x="timestamp", y=pe_cols,
@@ -226,13 +207,11 @@ if start_poll <= now <= end_poll:
                 if y_range:
                     fig_pe.update_yaxes(range=y_range)
                 st.plotly_chart(fig_pe, use_container_width=True)
-    
 
     if not df.empty:
         csv_buffer = io.StringIO()
         df.to_csv(csv_buffer, index=False)
         csv_bytes = csv_buffer.getvalue().encode()
-
         st.download_button(
             label="Download Full Day Greeks CSV",
             data=csv_bytes,
