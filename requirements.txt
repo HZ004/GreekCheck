@@ -3,6 +3,6 @@ streamlit-autorefresh
 requests
 pandas
 numpy
-matplotlib
 plotly
 scipy
+zoneinfo
