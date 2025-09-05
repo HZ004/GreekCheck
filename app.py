@@ -81,20 +81,36 @@ def select_option_strikes(contract_df, spot, expiry, n=5):
 def poll_greeks_ltp(inst_keys):
     ikeys_str = ",".join(inst_keys)
     data = {}
+
+    # Get response dictionaries
     r = requests.get(API_LTP, headers=HEADERS, params={"instrument_key": ikeys_str})
     ltp_resp = r.json().get("data", {})
     r = requests.get(API_GREEKS, headers=HEADERS, params={"instrument_key": ikeys_str})
     greeks_resp = r.json().get("data", {})
-    for ikey in inst_keys:
-        ltp = ltp_resp.get(ikey, {}).get("ltp", np.nan)
-        g = greeks_resp.get(ikey, {})
-        data[ikey] = {"ltp": ltp}
-        for greek in ["delta", "gamma", "vega", "theta", "rho"]:
-            data[ikey][greek] = g.get(greek, None)
-    st.write("Raw LTP API response:", ltp_resp)
-    st.write("Raw Greeks API response:", greeks_resp)
 
+    # Build instrument_key → LTP mapping using "instrument_token"
+    ltp_map = {}
+    for k, v in ltp_resp.items():
+        token = v.get("instrument_token")
+        if token:
+            ltp_map[token] = v.get("last_price", np.nan)
+    # Build instrument_key → Greeks mapping using "instrument_token"
+    greeks_map = {}
+    for k, v in greeks_resp.items():
+        token = v.get("instrument_token")
+        if token:
+            greeks_map[token] = v
+
+    # Now, look up by instrument_key
+    for ikey in inst_keys:
+        ltp = ltp_map.get(ikey, np.nan)
+        g = greeks_map.get(ikey, {})
+        data[ikey] = {"ltp": ltp}
+        # Copy the remaining greek metrics (null if not available)
+        for greek in ["delta", "gamma", "theta"]:
+            data[ikey][greek] = g.get(greek, None)
     return data
+
 
 def black_scholes_greeks(S, K, T, sigma, instrument_type, r=0.05):
     if T <= 0 or sigma <= 0:
