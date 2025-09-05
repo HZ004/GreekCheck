@@ -25,12 +25,6 @@ SYMBOL = "Nifty 50"
 STRIKES_TO_PICK = 5
 
 
-
-st.markdown(f"""
-### Current {SYMBOL} LTP: <span style='color:green; font-weight:bold;'>{spot_price:.2f}</span>
-""", unsafe_allow_html=True)
-
-
 API_OP_CONTRACTS = "https://api.upstox.com/v2/option/contract"
 API_GREEKS = "https://api.upstox.com/v3/market-quote/option-greek"
 API_LTP = "https://api.upstox.com/v3/market-quote/ltp"
@@ -138,6 +132,9 @@ end_poll = datetime.combine(today, time(15, 20), IST)
 
 spot_instrument_key = f"{EXCHANGE}|{SYMBOL}"
 spot_price = fetch_spot_price(spot_instrument_key)
+st.markdown(f"""
+### Current {SYMBOL} LTP: <span style='color:green; font-weight:bold;'>{spot_price:.2f}</span>
+""", unsafe_allow_html=True)
 
 contract_df = fetch_option_contracts()
 spot_price = fetch_spot_price(f"{EXCHANGE}|{SYMBOL}")
