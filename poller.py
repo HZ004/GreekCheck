@@ -8,8 +8,20 @@ import gspread
 from google.oauth2.service_account import Credentials
 from scipy.stats import norm
 import time as pytime
+from threading import Thread
+from flask import Flask
 
-# Google Sheets setup
+# --- Keep-alive HTTP server setup ---
+app = Flask("keep_alive")
+
+@app.route("/")
+def home():
+    return "Polling service running"
+
+def run_flask():
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+
+# --- Google Sheets setup ---
 SECRET_FILE_PATH = "/var/opt/render/secrets/service_account.json"
 if os.path.exists(SECRET_FILE_PATH):
     SERVICE_ACCOUNT_FILE = SECRET_FILE_PATH
@@ -36,7 +48,7 @@ def append_greeks_to_sheets(df: pd.DataFrame):
     for _, row in df.iterrows():
         sheet.append_row(row.astype(str).tolist())
 
-# Upstox API config and helpers
+# --- Upstox API and helpers ---
 EXCHANGE = "NSE_INDEX"
 SYMBOL = "Nifty 50"
 STRIKES_TO_PICK = 5
@@ -203,4 +215,9 @@ def main_loop():
         pytime.sleep(60)  # Poll every 60 seconds
 
 if __name__ == "__main__":
+    # Start Flask keep-alive server in background thread
+    from threading import Thread
+    Thread(target=run_flask, daemon=True).start()
+
+    # Run polling loop
     main_loop()
