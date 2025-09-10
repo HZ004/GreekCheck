@@ -5,9 +5,8 @@ import {
 import Papa from 'papaparse'
 import DatePicker from 'react-datepicker'
 import 'react-datepicker/dist/react-datepicker.css'
-import { addSeconds, startOfMinute, differenceInSeconds } from 'date-fns'
 
-// Replace with your actual public S3 URL or presigned URL to the CSV file
+// Environment variable for S3 CSV URL (set in Render)
 const S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL
 
 const greekKeys = ['delta', 'gamma', 'theta', 'ltp']
@@ -21,25 +20,21 @@ const intervals = [
   { label: '5 minutes', value: 300 }
 ]
 
-// Helper to extract columns for a specific greek and plot lines for each strike
 function getLinesForGreek(dataKeys, greek) {
   return dataKeys
     .filter(k => k.endsWith(`_${greek}`))
-    .map(key => {
-      return (
-        <Line
-          key={key}
-          type="monotone"
-          dataKey={key}
-          dot={false}
-          stroke={`#${stringToColor(key)}`}
-          strokeWidth={2}
-        />
-      )
-    })
+    .map(key => (
+      <Line
+        key={key}
+        type="monotone"
+        dataKey={key}
+        dot={false}
+        stroke={`#${stringToColor(key)}`}
+        strokeWidth={2}
+      />
+    ))
 }
 
-// String hash to color function
 function stringToColor(str) {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -54,7 +49,6 @@ function stringToColor(str) {
   return color
 }
 
-// Moving average smoothing function for numeric values based on window size
 function movingAverage(data, key, windowSize) {
   const result = []
   for (let i = 0; i < data.length; i++) {
@@ -63,7 +57,7 @@ function movingAverage(data, key, windowSize) {
     let sum = 0
     let count = 0
     for (let j = 0; j < subset.length; j++) {
-      let val = subset[j][key]
+      const val = subset[j][key]
       if (typeof val === 'number' && !isNaN(val)) {
         sum += val
         count++
@@ -85,6 +79,11 @@ function App() {
 
   useEffect(() => {
     async function fetchAndParse() {
+      if (!S3_CSV_URL) {
+        setError("S3 CSV URL is not set in environment variables")
+        setLoading(false)
+        return
+      }
       try {
         const response = await fetch(S3_CSV_URL)
         if (!response.ok) throw new Error(`HTTP error: ${response.status}`)
@@ -100,40 +99,31 @@ function App() {
     fetchAndParse()
   }, [])
 
-  // Filter by date range and aggregate by interval with moving average smoothing
   const filteredAggregatedData = useMemo(() => {
     if (data.length === 0) return []
 
     let filtered = data
 
-    // Filter by date range
     if (startDate) filtered = filtered.filter(d => new Date(d.timestamp) >= startDate)
     if (endDate) filtered = filtered.filter(d => new Date(d.timestamp) <= endDate)
 
-    // Aggregate by interval seconds (sample and average)
-    // Group timestamps by nearest interval bucket
     let buckets = new Map()
     filtered.forEach(row => {
       let dt = new Date(row.timestamp)
       let seconds = dt.getSeconds()
       let minutes = dt.getMinutes()
       let hours = dt.getHours()
-      
-      // Calculate total seconds since start of day
       let totalSeconds = hours * 3600 + minutes * 60 + seconds
-      // Calculate bucket start by flooring totalSeconds to nearest multiple of interval
       let bucketStartSec = Math.floor(totalSeconds / interval) * interval
-      // Construct bucket timestamp
       let bucketDate = new Date(dt)
-      bucketDate.setHours(0,0,0,0)
+      bucketDate.setHours(0, 0, 0, 0)
       bucketDate = new Date(bucketDate.getTime() + bucketStartSec * 1000)
       let bucketKey = bucketDate.toISOString()
 
       if (!buckets.has(bucketKey)) {
         let newRow = { timestamp: bucketKey }
-        // Initialize keys with arrays for averaging
         Object.keys(row).forEach(k => {
-          if(k !== 'timestamp'){
+          if (k !== 'timestamp') {
             newRow[k] = [row[k]]
           }
         })
@@ -141,37 +131,33 @@ function App() {
       } else {
         let existingRow = buckets.get(bucketKey)
         Object.keys(row).forEach(k => {
-          if(k !== 'timestamp'){
+          if (k !== 'timestamp') {
             existingRow[k].push(row[k])
           }
         })
       }
     })
 
-    // Build averaged rows with moving average smoothing
     let resultRows = []
     for (let [bucketKey, valuesObj] of buckets) {
       let newRow = { timestamp: bucketKey }
       Object.entries(valuesObj).forEach(([k, vals]) => {
         if (k === 'timestamp') return
-        // Average ignoring null/NaN
         let validVals = vals.filter(v => v !== null && v !== undefined && !isNaN(v))
-        let avgVal = validVals.length > 0 ? validVals.reduce((a,b) => a + b, 0) / validVals.length : null
+        let avgVal = validVals.length > 0 ? validVals.reduce((a, b) => a + b, 0) / validVals.length : null
         newRow[k] = avgVal
       })
       resultRows.push(newRow)
     }
 
-    // Sort result by timestamp ascending
-    resultRows.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp))
+    resultRows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
     // Apply moving average smoothing on each key except timestamp
-    resultRows.forEach((row, idx) => {
-      greekKeys.forEach(greek => {
+    greekKeys.forEach(greek => {
+      resultRows.forEach((row, idx) => {
         Object.keys(row).forEach(k => {
           if (k.endsWith(`_${greek}`)) {
-            // Create an array for the key across all rows for moving average
-            let window = Math.max(1, Math.floor(interval / 5)) // window size in points
+            let window = Math.max(1, Math.floor(interval / 5))
             let maValues = movingAverage(resultRows, k, window)
             resultRows.forEach((r, index) => { r[k] = maValues[index] })
           }
