@@ -8,7 +8,7 @@ import 'react-datepicker/dist/react-datepicker.css'
 import { addSeconds, startOfMinute, differenceInSeconds } from 'date-fns'
 
 // Replace with your actual public S3 URL or presigned URL to the CSV file
-const S3_CSV_URL = 'https://your-s3-bucket.s3.amazonaws.com/upstox-greeks/greeks_data_all.csv'
+const S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL
 
 const greekKeys = ['delta', 'gamma', 'theta', 'ltp']
 
