@@ -5,6 +5,7 @@ import {
 import Papa from 'papaparse'
 import DatePicker from 'react-datepicker'
 import 'react-datepicker/dist/react-datepicker.css'
+import './App.css' // Ensure you have this for styling
 
 // Environment variable for S3 CSV URL (set in Render)
 const S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL
@@ -20,18 +21,21 @@ const intervals = [
   { label: '5 minutes', value: 300 }
 ]
 
-function stringToColor(str) {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash)
-    hash = hash & hash
+// Color-blind-friendly colors palette to assign per base key (strike/instrument)
+const colorPalette = [
+  '#0072B2', '#E69F00', '#F0E442', '#D55E00',
+  '#CC79A7', '#56B4E9', '#009E73', '#999999'
+]
+
+// Map baseKeys to colors deterministically
+const baseKeyColorMap = {}
+let colorIndex = 0
+function getColorForKey(key) {
+  if (!(key in baseKeyColorMap)) {
+    baseKeyColorMap[key] = colorPalette[colorIndex % colorPalette.length]
+    colorIndex++
   }
-  let color = '#'
-  for (let i = 0; i < 3; i++) {
-    const value = (hash >> (i * 8)) & 0xff
-    color += ('00' + value.toString(16)).substr(-2)
-  }
-  return color
+  return baseKeyColorMap[key]
 }
 
 function legendFormatter(value) {
@@ -75,25 +79,32 @@ function getYAxisDomain(data, keys) {
     min = 0
     max = 1
   }
-  const padding = (max - min) * 0.1 || 0.1
-  const rawMin = min - padding
-  const rawMax = max + padding
+  // Dynamic extra padding for visually tight bands
+  let delta = max - min
+  let extra = delta < 2 ? 2 : delta * 0.12
+  const expandedMin = Math.floor((min - extra) * 100) / 100
+  const expandedMax = Math.ceil((max + extra) * 100) / 100
   const greek = keys.length > 0 ? (keys[0].match(/_(delta|gamma|theta|ltp)$/) || [null, null])[1] : null
-  return roundAxisDomain(rawMin, rawMax, greek)
+  return roundAxisDomain(expandedMin, expandedMax, greek)
 }
 
-function getLinesForKeys(keys) {
+function getLinesForKeys(keys, hiddenLines, toggleLine) {
   return keys.map(key => {
     const baseKey = key.replace(/_(delta|gamma|theta|ltp)$/, '')
+    const color = getColorForKey(baseKey)
+    const isHidden = hiddenLines.has(key)
     return (
       <Line
         key={key}
         type="monotone"
         dataKey={key}
         dot={false}
-        stroke={stringToColor(baseKey)}
+        stroke={color}
         strokeWidth={2}
         name={baseKey}
+        hide={isHidden}
+        onClick={() => toggleLine(key)}
+        style={{ cursor: 'pointer' }}
       />
     )
   })
@@ -120,13 +131,13 @@ function movingAverage(data, key, windowSize) {
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload || payload.length === 0) return null
-  // Sort payload descending by value for tooltip ordering
+  // Sort tooltip entries descending by value for vertically intuitive display
   const sortedPayload = payload.slice().sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
   return (
-    <div className="custom-tooltip" style={{ backgroundColor: 'white', padding: 10, border: '1px solid #ccc' }}>
+    <div className="custom-tooltip" style={{ backgroundColor: 'white', padding: 10, borderRadius: 6, boxShadow: '0 2px 5px rgba(0,0,0,0.15)', border: '1px solid #ddd' }}>
       <p><strong>{new Date(label).toLocaleString()}</strong></p>
       {sortedPayload.map((entry, index) => (
-        <p key={`item-${index}`} style={{ color: entry.color, margin: 0 }}>
+        <p key={`item-${index}`} style={{ color: entry.color, margin: 0, fontWeight: '500' }}>
           {entry.name}: {Number(entry.value).toFixed(entry.dataKey.endsWith('_gamma') ? 3 : 2)}
         </p>
       ))}
@@ -142,6 +153,7 @@ function App() {
   const [endDate, setEndDate] = useState(null)
   const [interval, setInterval] = useState(5)
   const [windowHeight, setWindowHeight] = useState(window.innerHeight)
+  const [hiddenLines, setHiddenLines] = useState(new Set())
 
   useEffect(() => {
     const handleResize = () => setWindowHeight(window.innerHeight)
@@ -260,15 +272,27 @@ function App() {
     yDomains[greek] = getYAxisDomain(filteredAggregatedData, combinedKeys)
   })
 
+  function toggleLine(key) {
+    setHiddenLines(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
   // Calculate available height for layout
-  const availableHeight = windowHeight - 250 // approximate space for controls and margins
-  const chartHeight = Math.max(240, availableHeight / 4 - 30) // 4 rows with gap
+  const availableHeight = windowHeight - 250 // approx controls etc
+  const chartHeight = Math.max(240, availableHeight / 4 - 30) // 4 rows
 
   return (
-    <div className="app-container" style={{ padding: 10, boxSizing: 'border-box' }}>
+    <div className="app-container">
       <h1>Upstox Option Greeks Dashboard</h1>
-      <div className="controls" style={{ marginBottom: 20 }}>
-        <label style={{ marginRight: 20 }}>
+      <div className="controls">
+        <label>
           Start Date:
           <DatePicker
             selected={startDate}
@@ -281,7 +305,7 @@ function App() {
             placeholderText="Select start date"
           />
         </label>
-        <label style={{ marginRight: 20 }}>
+        <label>
           End Date:
           <DatePicker
             selected={endDate}
@@ -297,7 +321,7 @@ function App() {
         </label>
         <label>
           Interval:
-          <select value={interval} onChange={e => setInterval(Number(e.target.value))} style={{ marginLeft: 5 }}>
+          <select value={interval} onChange={e => setInterval(Number(e.target.value))}>
             {intervals.map(opt => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
@@ -307,60 +331,43 @@ function App() {
         </label>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gridAutoRows: `${chartHeight}px`,
-          gap: 20,
-          overflowY: 'auto',
-          maxHeight: availableHeight + 100,
-          boxSizing: 'border-box',
-          padding: 10,
-          border: '1px solid #ddd',
-          borderRadius: 4
-        }}
-      >
+      <div className="charts-grid" style={{ maxHeight: availableHeight + 100, overflowY: 'auto' }}>
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
-            <section className="chart-section" style={{ border: '1px solid #ccc', padding: 10, boxSizing: 'border-box', overflow: 'hidden' }}>
-              <h2 style={{ marginBottom: 10 }}>CE {greek.toUpperCase()} Over Time</h2>
+            <section className="chart-section">
+              <h2>CE {greek.toUpperCase()} Over Time</h2>
               <ResponsiveContainer width="100%" height={chartHeight - 50}>
-                <LineChart
-                  data={filteredAggregatedData}
-                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                >
+                <LineChart data={filteredAggregatedData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                   <XAxis
                     dataKey="timestamp"
                     tickFormatter={str => new Date(str).toLocaleTimeString()}
                     minTickGap={20}
+                    tick={{ fill: '#333' }}
                   />
-                  <YAxis domain={yDomains[greek]} />
-                  <CartesianGrid strokeDasharray="3 3" />
+                  <YAxis domain={yDomains[greek]} tick={{ fill: '#333' }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.8em' }} />
-                  {getLinesForKeys(keysByGreekAndType[greek].CE)}
+                  {getLinesForKeys(keysByGreekAndType[greek].CE, hiddenLines, toggleLine)}
                 </LineChart>
               </ResponsiveContainer>
             </section>
 
-            <section className="chart-section" style={{ border: '1px solid #ccc', padding: 10, boxSizing: 'border-box', overflow: 'hidden' }}>
-              <h2 style={{ marginBottom: 10 }}>PE {greek.toUpperCase()} Over Time</h2>
+            <section className="chart-section">
+              <h2>PE {greek.toUpperCase()} Over Time</h2>
               <ResponsiveContainer width="100%" height={chartHeight - 50}>
-                <LineChart
-                  data={filteredAggregatedData}
-                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                >
+                <LineChart data={filteredAggregatedData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                   <XAxis
                     dataKey="timestamp"
                     tickFormatter={str => new Date(str).toLocaleTimeString()}
                     minTickGap={20}
+                    tick={{ fill: '#333' }}
                   />
-                  <YAxis domain={yDomains[greek]} />
-                  <CartesianGrid strokeDasharray="3 3" />
+                  <YAxis domain={yDomains[greek]} tick={{ fill: '#333' }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.8em' }} />
-                  {getLinesForKeys(keysByGreekAndType[greek].PE)}
+                  {getLinesForKeys(keysByGreekAndType[greek].PE, hiddenLines, toggleLine)}
                 </LineChart>
               </ResponsiveContainer>
             </section>
