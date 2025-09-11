@@ -87,6 +87,7 @@ function getYAxisDomain(data, keys) {
   let expandedMin = Math.floor((min - extra) * 100) / 100
   let expandedMax = Math.ceil((max + extra) * 100) / 100
 
+  // Enforce min=0 for all Greeks except Theta
   if (greek !== 'theta' && expandedMin < 0) {
     expandedMin = 0
   }
@@ -94,22 +95,48 @@ function getYAxisDomain(data, keys) {
   return roundAxisDomain(expandedMin, expandedMax, greek)
 }
 
+/**
+ * Correct sliding-window trailing moving average.
+ * - windowSize is the number of points to include (>=1).
+ * - ignores null/undefined/NaN values (they don't count toward average).
+ * - returns an array of same length with numbers or null when no valid values in window.
+ */
 function movingAverage(data, key, windowSize) {
-  const result = []
-  for (let i = 0; i < data.length; i++) {
-    let start = Math.max(0, i - windowSize + 1)
-    let subset = data.slice(start, i + 1)
-    let sum = 0
-    let count = 0
-    for (let j = 0; j < subset.length; j++) {
-      const val = subset[j][key]
-      if (typeof val === 'number' && !isNaN(val)) {
-        sum += val
-        count++
+  const n = data.length
+  const result = new Array(n).fill(null)
+  if (n === 0) return result
+  if (windowSize <= 1) {
+    for (let i = 0; i < n; i++) {
+      const v = data[i][key]
+      result[i] = (typeof v === 'number' && !isNaN(v)) ? v : null
+    }
+    return result
+  }
+
+  let sum = 0
+  let count = 0
+  const queue = []
+
+  for (let i = 0; i < n; i++) {
+    const raw = data[i][key]
+    const v = (typeof raw === 'number' && !isNaN(raw)) ? raw : null
+    queue.push(v)
+    if (v !== null) {
+      sum += v
+      count++
+    }
+
+    if (queue.length > windowSize) {
+      const removed = queue.shift()
+      if (removed !== null) {
+        sum -= removed
+        count--
       }
     }
-    result.push(count > 0 ? sum / count : null)
+
+    result[i] = count > 0 ? sum / count : null
   }
+
   return result
 }
 
@@ -121,7 +148,7 @@ const CustomTooltip = ({ active, payload, label }) => {
       <p><strong>{new Date(label).toLocaleString()}</strong></p>
       {sortedPayload.map((entry, index) => (
         <p key={`item-${index}`} style={{ color: entry.color, margin: 0, fontWeight: '600' }}>
-          {entry.name}: {Number(entry.value).toFixed(entry.dataKey.endsWith('_gamma') ? 3 : 2)}
+          {entry.name}: {Number(entry.value).toFixed(entry.dataKey && entry.dataKey.endsWith('_gamma') ? 3 : 2)}
         </p>
       ))}
     </div>
@@ -173,6 +200,7 @@ function App() {
     if (startDate) filtered = filtered.filter(d => new Date(d.timestamp) >= startDate)
     if (endDate) filtered = filtered.filter(d => new Date(d.timestamp) <= endDate)
 
+    // bucket by interval
     let buckets = new Map()
     filtered.forEach(row => {
       let dt = new Date(row.timestamp)
@@ -218,18 +246,26 @@ function App() {
     }
     resultRows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
-    greekKeys.forEach(greek => {
-      resultRows.forEach((row, idx) => {
-        Object.keys(row).forEach(k => {
-          if (k.endsWith(`_${greek}`)) {
-            let window = Math.max(1, Math.floor(interval / 5))
-            let maValues = movingAverage(resultRows, k, window)
-            resultRows.forEach((r, index) => {
-              r[k] = roundValue(maValues[index], greek)
-            })
-          }
-        })
+    // Compute moving average once per series/key (efficient & correct)
+    const keysToSmooth = new Set()
+    resultRows.forEach(row => {
+      Object.keys(row).forEach(k => {
+        if (k !== 'timestamp') {
+          greekKeys.forEach(g => {
+            if (k.endsWith(`_${g}`)) keysToSmooth.add(k)
+          })
+        }
       })
+    })
+
+    const window = Math.max(1, Math.floor(interval / 5))
+    keysToSmooth.forEach(k => {
+      const greekMatch = k.match(/_(delta|gamma|theta|ltp)$/)
+      const greek = greekMatch ? greekMatch[1] : null
+      const maValues = movingAverage(resultRows, k, window)
+      for (let i = 0; i < resultRows.length; i++) {
+        resultRows[i][k] = roundValue(maValues[i], greek)
+      }
     })
 
     return resultRows
@@ -273,21 +309,52 @@ function App() {
     })
   }
 
-  const availableHeight = window.innerHeight - 300
+  const availableHeight = windowHeight - 300
   const chartHeight = Math.max(260, availableHeight / 4)
 
   return (
     <div className="app-container" style={{ fontFamily: 'Inter, sans-serif', background: '#f9fafb', minHeight: '100vh' }}>
-      <header className="header" style={{ 
-        position: 'sticky', top: 0, zIndex: 100, 
-        background: '#fff', padding: '16px 24px', 
-        boxShadow: '0 2px 8px rgba(0,0,0,0.05)', borderBottom: '1px solid #e5e7eb' 
+      <header className="header" style={{
+        position: 'sticky', top: 0, zIndex: 100,
+        background: '#fff', padding: '16px 24px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.05)', borderBottom: '1px solid #e5e7eb'
       }}>
         <h1 style={{ fontSize: '1.8rem', fontWeight: '700', marginBottom: '12px' }}>Upstox Option Greeks Dashboard</h1>
         <div className="controls" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
-          <label>Start Date:<DatePicker selected={startDate} onChange={setStartDate} selectsStart startDate={startDate} endDate={endDate} maxDate={endDate || new Date()} isClearable placeholderText="Select start date" /></label>
-          <label>End Date:<DatePicker selected={endDate} onChange={setEndDate} selectsEnd startDate={startDate} endDate={endDate} minDate={startDate} maxDate={new Date()} isClearable placeholderText="Select end date" /></label>
-          <label>Interval:<select value={interval} onChange={e => setInterval(Number(e.target.value))}>{intervals.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}</select></label>
+          <label>Start Date:
+            <DatePicker
+              selected={startDate}
+              onChange={setStartDate}
+              selectsStart
+              startDate={startDate}
+              endDate={endDate}
+              maxDate={endDate || new Date()}
+              isClearable
+              placeholderText="Select start date"
+            />
+          </label>
+          <label>End Date:
+            <DatePicker
+              selected={endDate}
+              onChange={setEndDate}
+              selectsEnd
+              startDate={startDate}
+              endDate={endDate}
+              minDate={startDate}
+              maxDate={new Date()}
+              isClearable
+              placeholderText="Select end date"
+            />
+          </label>
+          <label>Interval:
+            <select value={interval} onChange={e => setInterval(Number(e.target.value))}>
+              {intervals.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </header>
       
