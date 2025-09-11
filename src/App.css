@@ -1,19 +1,8 @@
-/* App.css — modernized visual tweaks (keeps legacy rules but tuned for the new dark theme) */
+/* App.css */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-
-/* keep some of your original styles for accessibility and printing */
 :root{--muted:#94a3b8}
-
-/* small helpers if you ever switch to light mode */
-.app-container{ /* not used by index.css; kept for backward compatibility */ }
-
 .custom-tooltip{background:linear-gradient(180deg,#fff,#f7fbff);color:#032a4a;padding:12px;border-radius:8px;border:1px solid #e2e8f0;}
-
 .recharts-legend-item{cursor:pointer;transition:opacity 0.12s}
 .recharts-legend-item:hover{opacity:0.75}
-
-/* existing chart hover improvements */
 .chart-section:hover{transform:translateY(-4px);transition:transform 0.18s ease}
-
-/* small utility */
 .small-muted{font-size:0.85rem;color:var(--muted)}
