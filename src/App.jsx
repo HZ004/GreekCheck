@@ -74,6 +74,7 @@ function getYAxisDomain(data, keys) {
     min = 0
     max = 1
   }
+
   let delta = max - min
   const greek = keys.length > 0 ? (keys[0].match(/_(delta|gamma|theta|ltp)$/) || [null, null])[1] : null
   let extra = 0
@@ -84,8 +85,14 @@ function getYAxisDomain(data, keys) {
   } else {
     extra = delta < 2 ? 2 : delta * 0.12
   }
-  const expandedMin = Math.floor((min - extra) * 100) / 100
-  const expandedMax = Math.ceil((max + extra) * 100) / 100
+  let expandedMin = Math.floor((min - extra) * 100) / 100
+  let expandedMax = Math.ceil((max + extra) * 100) / 100
+
+  // Enforce min=0 for all Greeks except Theta
+  if (greek !== 'theta' && expandedMin < 0) {
+    expandedMin = 0
+  }
+
   return roundAxisDomain(expandedMin, expandedMax, greek)
 }
 
