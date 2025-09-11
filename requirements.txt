@@ -1,0 +1,10 @@
+streamlit
+streamlit-autorefresh
+requests
+pandas
+numpy
+plotly
+scipy
+gspread
+google-auth
+flask
