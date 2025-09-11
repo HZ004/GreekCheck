@@ -350,9 +350,12 @@ function App() {
                 boxShadow: '0 6px 18px rgba(0, 0, 0, 0.08)',
                 padding: '20px',
                 minHeight: `${chartHeight + 40}px`,
+                maxWidth: '95%',          // Prevents full stretch, looks cleaner
+                width: '100%',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center',
+                alignItems: 'center',
                 boxSizing: 'border-box',
                 transition: 'transform 0.2s ease, box-shadow 0.2s ease',
               }}
