@@ -136,14 +136,15 @@ const CustomTooltip = ({ active, payload, label }) => {
   const sortedPayload = payload.slice().sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
   return (
     <div className="custom-tooltip" style={{
-      background: 'rgba(255,255,255,0.95)',
-      border: '1px solid #e0e0e0',
+      background: 'rgba(30,30,30,0.95)',
+      border: '1px solid #555',
       borderRadius: '12px',
       padding: '12px',
-      boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-      fontSize: '0.85rem'
+      boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+      fontSize: '0.85rem',
+      color: '#fff'
     }}>
-      <p style={{ margin: '0 0 6px 0', fontWeight: '600', color: '#333' }}>
+      <p style={{ margin: '0 0 6px 0', fontWeight: '600', color: '#f0f0f0' }}>
         {new Date(label).toLocaleString()}
       </p>
       {sortedPayload.map((entry, index) => (
@@ -300,18 +301,18 @@ function App() {
   const chartHeight = Math.max(260, availableHeight / 4)
 
   return (
-    <div className="app-container" style={{ fontFamily: 'Inter, sans-serif', background: '#f5f7fa', minHeight: '100vh' }}>
+    <div className="app-container" style={{ fontFamily: '"Merriweather", serif', background: '#121212', minHeight: '100vh', color: '#eee' }}>
       <header style={{
         position: 'sticky', top: 0, zIndex: 100,
-        background: 'linear-gradient(90deg, #4f46e5, #3b82f6)',
+        background: '#1f1f1f',
         padding: '20px 30px',
-        color: '#fff',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-        borderBottom: '1px solid rgba(255,255,255,0.2)'
+        boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+        borderBottom: '1px solid #333',
+        textAlign: 'center'
       }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: '700', marginBottom: '14px', textShadow: '1px 1px 2px rgba(0,0,0,0.2)' }}>Upstox Option Greeks Dashboard</h1>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500' }}>Start Date
+        <h1 style={{ fontSize: '2rem', fontWeight: '700', marginBottom: '16px', color: '#f0f0f0' }}>Upstox Option Greeks Dashboard</h1>
+        <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '20px', alignItems: 'center' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>Start Date
             <DatePicker
               selected={startDate}
               onChange={setStartDate}
@@ -321,10 +322,10 @@ function App() {
               maxDate={endDate || new Date()}
               isClearable
               placeholderText="Select start date"
-              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #ccc' }}
+              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff' }}
             />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500' }}>End Date
+          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>End Date
             <DatePicker
               selected={endDate}
               onChange={setEndDate}
@@ -335,15 +336,16 @@ function App() {
               maxDate={new Date()}
               isClearable
               placeholderText="Select end date"
-              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #ccc' }}
+              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff' }}
             />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500' }}>Interval
+          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>Interval
             <select value={interval} onChange={e => setInterval(Number(e.target.value))} style={{
               padding: '6px 10px',
               borderRadius: '8px',
-              border: '1px solid #ccc',
-              background: '#fff'
+              border: '1px solid #555',
+              background: '#222',
+              color: '#fff'
             }}>
               {intervals.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
