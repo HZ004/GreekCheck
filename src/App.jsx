@@ -297,11 +297,12 @@ function App() {
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))',
           gridAutoRows: `${chartHeight}px`,
-          gap: '20px',
+          gap: '40px 20px', // ⬅️ Increased row gap
           padding: '20px',
           overflowY: 'auto'
         }}
       >
+
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
             <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', padding: '10px', transition: 'transform 0.2s', }}>
