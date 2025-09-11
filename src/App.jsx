@@ -168,6 +168,10 @@ function App() {
     return resultRows
   }, [data, startDate, endDate, interval])
 
+  console.log("Aggregated data:", filteredAggregatedData)
+  console.log("Data keys:", dataKeys)
+
+
   if (loading) return <div className="loading">Loading data...</div>
   if (error) return <div className="error">Error loading data: {error}</div>
   if (filteredAggregatedData.length === 0) return <div className="no-data">No data for selected range</div>
