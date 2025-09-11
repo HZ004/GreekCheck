@@ -168,8 +168,6 @@ function App() {
     return resultRows
   }, [data, startDate, endDate, interval])
 
-  console.log("Aggregated data:", filteredAggregatedData)
-  console.log("Data keys:", dataKeys)
 
 
   if (loading) return <div className="loading">Loading data...</div>
@@ -177,7 +175,8 @@ function App() {
   if (filteredAggregatedData.length === 0) return <div className="no-data">No data for selected range</div>
 
   const dataKeys = Object.keys(filteredAggregatedData[0]).filter(key => key !== 'timestamp')
-
+  console.log("Aggregated data:", filteredAggregatedData)
+  console.log("Data keys:", dataKeys)
   return (
     <div className="app-container">
       <h1>Upstox Option Greeks Dashboard</h1>
