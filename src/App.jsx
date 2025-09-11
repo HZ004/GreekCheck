@@ -9,7 +9,8 @@ import 'react-datepicker/dist/react-datepicker.css'
 // Environment variable for S3 CSV URL (set in Render)
 const S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL
 
-const greekKeys = ['delta', 'gamma', 'theta', 'ltp']
+const greekOrder = ['ltp', 'delta', 'gamma', 'theta']
+const greekKeys = ['delta', 'gamma', 'theta', 'ltp'] // original used for aggregation
 const intervals = [
   { label: '5 seconds', value: 5 },
   { label: '15 seconds', value: 15 },
@@ -39,24 +40,43 @@ function legendFormatter(value) {
   return value.replace(/_(delta|gamma|theta|ltp)$/, '')
 }
 
-function getLinesForGreek(dataKeys, greek) {
-  return dataKeys
-    .filter(k => k.endsWith(`_${greek}`))
-    .map(key => {
-      // Extract base key without suffix for color grouping and legend label
-      const baseKey = key.replace(/_(delta|gamma|theta|ltp)$/, '')
-      return (
-        <Line
-          key={key}
-          type="monotone"
-          dataKey={key}
-          dot={false}
-          stroke={stringToColor(baseKey)}  // Same color for lines with same baseKey
-          strokeWidth={2}
-          name={baseKey}  // Shows simplified legend name without suffix
-        />
-      )
+// For synchronized Y-axis domain calculation
+function getYAxisDomain(data, keys) {
+  let min = Infinity
+  let max = -Infinity
+  data.forEach(row => {
+    keys.forEach(key => {
+      const val = row[key]
+      if (typeof val === 'number' && !isNaN(val)) {
+        if (val < min) min = val
+        if (val > max) max = val
+      }
     })
+  })
+  if (min === Infinity || max === -Infinity) {
+    min = 0
+    max = 1
+  }
+  // Add some padding
+  const padding = (max - min) * 0.1 || 0.1
+  return [min - padding, max + padding]
+}
+
+function getLinesForKeys(keys) {
+  return keys.map(key => {
+    const baseKey = key.replace(/_(delta|gamma|theta|ltp)$/, '')
+    return (
+      <Line
+        key={key}
+        type="monotone"
+        dataKey={key}
+        dot={false}
+        stroke={stringToColor(baseKey)}
+        strokeWidth={2}
+        name={baseKey}
+      />
+    )
+  })
 }
 
 function movingAverage(data, key, windowSize) {
@@ -180,8 +200,22 @@ function App() {
 
   const dataKeys = Object.keys(filteredAggregatedData[0]).filter(key => key !== 'timestamp')
 
-  console.log("Aggregated data:", filteredAggregatedData)
-  console.log("Data keys:", dataKeys)
+  // Group keys by greek type and CE / PE separation
+  // Assumes key format like "CE_24700_delta", "PE_24900_theta", etc.
+  const keysByGreekAndType = {}
+  greekOrder.forEach(greek => {
+    keysByGreekAndType[greek] = {
+      CE: dataKeys.filter(k => k.endsWith(`_${greek}`) && k.startsWith('CE_')),
+      PE: dataKeys.filter(k => k.endsWith(`_${greek}`) && k.startsWith('PE_'))
+    }
+  })
+
+  // Calculate Y-axis domain for CE and PE combined for each greek
+  const yDomains = {}
+  greekOrder.forEach(greek => {
+    const combinedKeys = [...keysByGreekAndType[greek].CE, ...keysByGreekAndType[greek].PE]
+    yDomains[greek] = getYAxisDomain(filteredAggregatedData, combinedKeys)
+  })
 
   return (
     <div className="app-container">
@@ -225,28 +259,64 @@ function App() {
           </select>
         </label>
       </div>
-      {greekKeys.map(greek => (
-        <section key={greek} className="chart-section">
-          <h2>{greek.toUpperCase()} Over Time</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart
-              data={filteredAggregatedData}
-              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-            >
-              <XAxis
-                dataKey="timestamp"
-                tickFormatter={str => new Date(str).toLocaleTimeString()}
-                minTickGap={20}
-              />
-              <YAxis />
-              <CartesianGrid strokeDasharray="3 3" />
-              <Tooltip labelFormatter={label => new Date(label).toLocaleString()} />
-              <Legend formatter={legendFormatter} />
-              {getLinesForGreek(dataKeys, greek)}
-            </LineChart>
-          </ResponsiveContainer>
-        </section>
-      ))}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gridTemplateRows: 'repeat(4, 320px)',
+          gap: '20px',
+          marginTop: '20px'
+        }}
+      >
+        {greekOrder.map(greek => (
+          <React.Fragment key={greek}>
+            {/* CE plot left */}
+            <section className="chart-section" style={{ border: '1px solid #ccc', padding: '10px' }}>
+              <h2>CE {greek.toUpperCase()} Over Time</h2>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart
+                  data={filteredAggregatedData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={str => new Date(str).toLocaleTimeString()}
+                    minTickGap={20}
+                  />
+                  <YAxis domain={yDomains[greek]} />
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <Tooltip labelFormatter={label => new Date(label).toLocaleString()} />
+                  <Legend formatter={legendFormatter} />
+                  {getLinesForKeys(keysByGreekAndType[greek].CE)}
+                </LineChart>
+              </ResponsiveContainer>
+            </section>
+
+            {/* PE plot right */}
+            <section className="chart-section" style={{ border: '1px solid #ccc', padding: '10px' }}>
+              <h2>PE {greek.toUpperCase()} Over Time</h2>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart
+                  data={filteredAggregatedData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={str => new Date(str).toLocaleTimeString()}
+                    minTickGap={20}
+                  />
+                  <YAxis domain={yDomains[greek]} />
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <Tooltip labelFormatter={label => new Date(label).toLocaleString()} />
+                  <Legend formatter={legendFormatter} />
+                  {getLinesForKeys(keysByGreekAndType[greek].PE)}
+                </LineChart>
+              </ResponsiveContainer>
+            </section>
+          </React.Fragment>
+        ))}
+      </div>
     </div>
   )
 }
