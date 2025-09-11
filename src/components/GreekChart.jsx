@@ -16,41 +16,43 @@ const GreekChart = ({
   height
 }) => {
   return (
-    <section className="chart-section">
+    <section className="card">
       <h2>{title}</h2>
-      <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-          <XAxis
-            dataKey="timestamp"
-            tickFormatter={str => new Date(str).toLocaleTimeString()}
-            minTickGap={20}
-            tick={{ fill: '#333' }}
-          />
-          <YAxis domain={yDomain} tick={{ fill: '#333' }} />
-          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-          <Tooltip content={customTooltip} />
-          <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.85rem', userSelect: 'none' }} />
-          {dataKeys.map(key => {
-            const baseKey = key.replace(/_(delta|gamma|theta|ltp)$/, '')
-            const color = colorMap[baseKey]
-            const isHidden = hiddenLines.has(key)
-            return (
-              <Line
-                key={key}
-                type="monotone"
-                dataKey={key}
-                dot={false}
-                stroke={color}
-                strokeWidth={2}
-                name={baseKey}
-                hide={isHidden}
-                onClick={() => toggleLine(key)}
-                style={{ cursor: 'pointer' }}
-              />
-            )
-          })}
-        </LineChart>
-      </ResponsiveContainer>
+      <div style={{ width: '100%', height }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 6, right: 18, left: 6, bottom: 6 }}>
+            <XAxis
+              dataKey="timestamp"
+              tickFormatter={str => new Date(str).toLocaleTimeString()}
+              minTickGap={40}
+              tick={{ fill: '#cbd5e1', fontSize: 12 }}
+            />
+            <YAxis domain={yDomain} tick={{ fill: '#cbd5e1', fontSize: 12 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#0f172a" />
+            <Tooltip content={customTooltip} />
+            <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.85rem', userSelect: 'none' }} />
+            {dataKeys.map(key => {
+              const baseKey = key.replace(/_(delta|gamma|theta|ltp)$/, '')
+              const color = colorMap[baseKey]
+              const isHidden = hiddenLines.has(key)
+              return (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  dot={false}
+                  stroke={color}
+                  strokeWidth={2.25}
+                  name={baseKey}
+                  hide={isHidden}
+                  onClick={() => toggleLine(key)}
+                  style={{ cursor: 'pointer' }}
+                />
+              )
+            })}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </section>
   )
 }
