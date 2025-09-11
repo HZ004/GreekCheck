@@ -29,7 +29,7 @@ const GreekChart = ({
           <YAxis domain={yDomain} tick={{ fill: '#333' }} />
           <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
           <Tooltip content={customTooltip} />
-          <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.8em' }} />
+          <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.85rem', userSelect: 'none' }} />
           {dataKeys.map(key => {
             const baseKey = key.replace(/_(delta|gamma|theta|ltp)$/, '')
             const color = colorMap[baseKey]
