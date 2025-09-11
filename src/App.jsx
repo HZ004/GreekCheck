@@ -98,6 +98,13 @@ function movingAverage(data, key, windowSize) {
   return result
 }
 
+function roundValue(value, greek) {
+  if (value === null || value === undefined || isNaN(value)) return value
+  if (greek === 'gamma') return Number(value.toFixed(3))
+  if (['ltp', 'delta', 'theta'].includes(greek)) return Number(value.toFixed(2))
+  return value
+}
+
 function App() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
@@ -172,7 +179,10 @@ function App() {
         if (k === 'timestamp') return
         let validVals = vals.filter(v => v !== null && v !== undefined && !isNaN(v))
         let avgVal = validVals.length > 0 ? validVals.reduce((a, b) => a + b, 0) / validVals.length : null
-        newRow[k] = avgVal
+        // Round value according to greek suffix
+        const greekSuffixMatch = k.match(/_(delta|gamma|theta|ltp)$/)
+        const greek = greekSuffixMatch ? greekSuffixMatch[1] : null
+        newRow[k] = greek ? roundValue(avgVal, greek) : avgVal
       })
       resultRows.push(newRow)
     }
@@ -185,7 +195,10 @@ function App() {
           if (k.endsWith(`_${greek}`)) {
             let window = Math.max(1, Math.floor(interval / 5))
             let maValues = movingAverage(resultRows, k, window)
-            resultRows.forEach((r, index) => { r[k] = maValues[index] })
+            resultRows.forEach((r, index) => {
+              // Round after averaging
+              r[k] = roundValue(maValues[index], greek)
+            })
           }
         })
       })
@@ -201,7 +214,6 @@ function App() {
   const dataKeys = Object.keys(filteredAggregatedData[0]).filter(key => key !== 'timestamp')
 
   // Group keys by greek type and CE / PE separation
-  // Assumes key format like "CE_24700_delta", "PE_24900_theta", etc.
   const keysByGreekAndType = {}
   greekOrder.forEach(greek => {
     keysByGreekAndType[greek] = {
@@ -287,7 +299,7 @@ function App() {
                   <YAxis domain={yDomains[greek]} />
                   <CartesianGrid strokeDasharray="3 3" />
                   <Tooltip labelFormatter={label => new Date(label).toLocaleString()} />
-                  <Legend formatter={legendFormatter} />
+                  <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.8em' }} />
                   {getLinesForKeys(keysByGreekAndType[greek].CE)}
                 </LineChart>
               </ResponsiveContainer>
@@ -309,7 +321,7 @@ function App() {
                   <YAxis domain={yDomains[greek]} />
                   <CartesianGrid strokeDasharray="3 3" />
                   <Tooltip labelFormatter={label => new Date(label).toLocaleString()} />
-                  <Legend formatter={legendFormatter} />
+                  <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.8em' }} />
                   {getLinesForKeys(keysByGreekAndType[greek].PE)}
                 </LineChart>
               </ResponsiveContainer>
