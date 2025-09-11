@@ -87,20 +87,11 @@ function getYAxisDomain(data, keys) {
   let expandedMin = Math.floor((min - extra) * 100) / 100
   let expandedMax = Math.ceil((max + extra) * 100) / 100
 
-  // Enforce min=0 for all Greeks except Theta
-  if (greek !== 'theta' && expandedMin < 0) {
-    expandedMin = 0
-  }
+  if (greek !== 'theta' && expandedMin < 0) expandedMin = 0
 
   return roundAxisDomain(expandedMin, expandedMax, greek)
 }
 
-/**
- * Correct sliding-window trailing moving average.
- * - windowSize is the number of points to include (>=1).
- * - ignores null/undefined/NaN values (they don't count toward average).
- * - returns an array of same length with numbers or null when no valid values in window.
- */
 function movingAverage(data, key, windowSize) {
   const n = data.length
   const result = new Array(n).fill(null)
@@ -144,10 +135,19 @@ const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload || payload.length === 0) return null
   const sortedPayload = payload.slice().sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
   return (
-    <div className="custom-tooltip">
-      <p><strong>{new Date(label).toLocaleString()}</strong></p>
+    <div className="custom-tooltip" style={{
+      background: 'rgba(255,255,255,0.95)',
+      border: '1px solid #e0e0e0',
+      borderRadius: '12px',
+      padding: '12px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+      fontSize: '0.85rem'
+    }}>
+      <p style={{ margin: '0 0 6px 0', fontWeight: '600', color: '#333' }}>
+        {new Date(label).toLocaleString()}
+      </p>
       {sortedPayload.map((entry, index) => (
-        <p key={`item-${index}`} style={{ color: entry.color, margin: 0, fontWeight: '600' }}>
+        <p key={`item-${index}`} style={{ color: entry.color, margin: 0, fontWeight: '500' }}>
           {entry.name}: {Number(entry.value).toFixed(entry.dataKey && entry.dataKey.endsWith('_gamma') ? 3 : 2)}
         </p>
       ))}
@@ -200,14 +200,10 @@ function App() {
     if (startDate) filtered = filtered.filter(d => new Date(d.timestamp) >= startDate)
     if (endDate) filtered = filtered.filter(d => new Date(d.timestamp) <= endDate)
 
-    // bucket by interval
     let buckets = new Map()
     filtered.forEach(row => {
       let dt = new Date(row.timestamp)
-      let seconds = dt.getSeconds()
-      let minutes = dt.getMinutes()
-      let hours = dt.getHours()
-      let totalSeconds = hours * 3600 + minutes * 60 + seconds
+      let totalSeconds = dt.getHours() * 3600 + dt.getMinutes() * 60 + dt.getSeconds()
       let bucketStartSec = Math.floor(totalSeconds / interval) * interval
       let bucketDate = new Date(dt)
       bucketDate.setHours(0, 0, 0, 0)
@@ -216,17 +212,13 @@ function App() {
       if (!buckets.has(bucketKey)) {
         let newRow = { timestamp: bucketKey }
         Object.keys(row).forEach(k => {
-          if (k !== 'timestamp') {
-            newRow[k] = [row[k]]
-          }
+          if (k !== 'timestamp') newRow[k] = [row[k]]
         })
         buckets.set(bucketKey, newRow)
       } else {
         let existingRow = buckets.get(bucketKey)
         Object.keys(row).forEach(k => {
-          if (k !== 'timestamp') {
-            existingRow[k].push(row[k])
-          }
+          if (k !== 'timestamp') existingRow[k].push(row[k])
         })
       }
     })
@@ -246,7 +238,6 @@ function App() {
     }
     resultRows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
-    // Compute moving average once per series/key (efficient & correct)
     const keysToSmooth = new Set()
     resultRows.forEach(row => {
       Object.keys(row).forEach(k => {
@@ -276,7 +267,6 @@ function App() {
   if (filteredAggregatedData.length === 0) return <div className="no-data">No data for selected range</div>
 
   const dataKeys = Object.keys(filteredAggregatedData[0]).filter(key => key !== 'timestamp')
-
   const allBaseKeys = Array.from(new Set(dataKeys.map(k => k.replace(/_(delta|gamma|theta|ltp)$/, ''))))
   const colorMap = {}
   allBaseKeys.forEach(key => {
@@ -300,11 +290,8 @@ function App() {
   function toggleLine(key) {
     setHiddenLines(prev => {
       const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -313,15 +300,18 @@ function App() {
   const chartHeight = Math.max(260, availableHeight / 4)
 
   return (
-    <div className="app-container" style={{ fontFamily: 'Inter, sans-serif', background: '#f9fafb', minHeight: '100vh' }}>
-      <header className="header" style={{
+    <div className="app-container" style={{ fontFamily: 'Inter, sans-serif', background: '#f5f7fa', minHeight: '100vh' }}>
+      <header style={{
         position: 'sticky', top: 0, zIndex: 100,
-        background: '#fff', padding: '16px 24px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.05)', borderBottom: '1px solid #e5e7eb'
+        background: 'linear-gradient(90deg, #4f46e5, #3b82f6)',
+        padding: '20px 30px',
+        color: '#fff',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        borderBottom: '1px solid rgba(255,255,255,0.2)'
       }}>
-        <h1 style={{ fontSize: '1.8rem', fontWeight: '700', marginBottom: '12px' }}>Upstox Option Greeks Dashboard</h1>
-        <div className="controls" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
-          <label>Start Date:
+        <h1 style={{ fontSize: '2rem', fontWeight: '700', marginBottom: '14px', textShadow: '1px 1px 2px rgba(0,0,0,0.2)' }}>Upstox Option Greeks Dashboard</h1>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500' }}>Start Date
             <DatePicker
               selected={startDate}
               onChange={setStartDate}
@@ -331,9 +321,10 @@ function App() {
               maxDate={endDate || new Date()}
               isClearable
               placeholderText="Select start date"
+              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #ccc' }}
             />
           </label>
-          <label>End Date:
+          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500' }}>End Date
             <DatePicker
               selected={endDate}
               onChange={setEndDate}
@@ -344,106 +335,67 @@ function App() {
               maxDate={new Date()}
               isClearable
               placeholderText="Select end date"
+              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #ccc' }}
             />
           </label>
-          <label>Interval:
-            <select value={interval} onChange={e => setInterval(Number(e.target.value))}>
-              {intervals.map(opt => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
+          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500' }}>Interval
+            <select value={interval} onChange={e => setInterval(Number(e.target.value))} style={{
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: '1px solid #ccc',
+              background: '#fff'
+            }}>
+              {intervals.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </label>
         </div>
       </header>
-      
-      <main
-        className="charts-grid"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', 
-          gap: '60px 30px',       // Big vertical/horizontal spacing
-          padding: '40px 30px',   // Add breathing room around all charts
-          alignItems: 'center',    // Prevent stretching that causes overlap
-          overflowY: 'auto',
-          boxSizing: 'border-box'
-        }}
-      >
 
+      <main style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))',
+        gap: '50px 25px',
+        padding: '40px 30px',
+        boxSizing: 'border-box'
+      }}>
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
-            <div
-              style={{
+            {['CE', 'PE'].map(type => (
+              <div key={type} style={{
                 background: '#fff',
-                borderRadius: '16px',
-                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.08)',
-                padding: '20px',
+                borderRadius: '18px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+                padding: '24px',
                 minHeight: `${chartHeight + 40}px`,
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center',
-                boxSizing: 'border-box',
                 transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                cursor: 'pointer'
               }}
-              onMouseEnter={e => {
-                e.currentTarget.style.transform = 'translateY(-4px)';
-                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)';
-              }}
-            >
-              <GreekChart
-                title={`CE ${greek.toUpperCase()} Over Time`}
-                data={filteredAggregatedData}
-                dataKeys={keysByGreekAndType[greek].CE}
-                yDomain={yDomains[greek]}
-                hiddenLines={hiddenLines}
-                toggleLine={toggleLine}
-                colorMap={colorMap}
-                legendFormatter={legendFormatter}
-                customTooltip={<CustomTooltip />}
-                height={chartHeight}
-              />
-            </div>
-        
-            <div
-              style={{
-                background: '#fff',
-                borderRadius: '16px',
-                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.08)',
-                padding: '20px',
-                minHeight: `${chartHeight + 40}px`,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                boxSizing: 'border-box',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.transform = 'translateY(-4px)';
-                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)';
-              }}
-            >
-              <GreekChart
-                title={`PE ${greek.toUpperCase()} Over Time`}
-                data={filteredAggregatedData}
-                dataKeys={keysByGreekAndType[greek].PE}
-                yDomain={yDomains[greek]}
-                hiddenLines={hiddenLines}
-                toggleLine={toggleLine}
-                colorMap={colorMap}
-                legendFormatter={legendFormatter}
-                customTooltip={<CustomTooltip />}
-                height={chartHeight}
-              />
-            </div>
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'translateY(-5px)'
+                  e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.12)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.08)'
+                }}
+              >
+                <GreekChart
+                  title={`${type} ${greek.toUpperCase()} Over Time`}
+                  data={filteredAggregatedData}
+                  dataKeys={keysByGreekAndType[greek][type]}
+                  yDomain={yDomains[greek]}
+                  hiddenLines={hiddenLines}
+                  toggleLine={toggleLine}
+                  colorMap={colorMap}
+                  legendFormatter={legendFormatter}
+                  customTooltip={<CustomTooltip />}
+                  height={chartHeight}
+                />
+              </div>
+            ))}
           </React.Fragment>
         ))}
       </main>
