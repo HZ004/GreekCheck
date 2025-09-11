@@ -19,27 +19,44 @@ const intervals = [
   { label: '5 minutes', value: 300 }
 ]
 
-// Custom color map for line keys
-const lineColorMap = {
-  delta: '#8884d8',
-  gamma: '#82ca9d',
-  theta: '#ff7300',
-  ltp: '#0088FE'
+// Helper to generate consistent color by baseKey (strike/instrument)
+function stringToColor(str) {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash)
+    hash = hash & hash
+  }
+  let color = '#'
+  for (let i = 0; i < 3; i++) {
+    const value = (hash >> (i * 8)) & 0xff
+    color += ('00' + value.toString(16)).substr(-2)
+  }
+  return color
+}
+
+// Custom legend formatter to remove suffixes
+function legendFormatter(value) {
+  return value.replace(/_(delta|gamma|theta|ltp)$/, '')
 }
 
 function getLinesForGreek(dataKeys, greek) {
   return dataKeys
     .filter(k => k.endsWith(`_${greek}`))
-    .map(key => (
-      <Line
-        key={key}
-        type="monotone"
-        dataKey={key}
-        dot={false}
-        stroke={lineColorMap[greek] || '#000000'} // Use custom color or fallback black
-        strokeWidth={2}
-      />
-    ))
+    .map(key => {
+      // Extract base key without suffix for color grouping and legend label
+      const baseKey = key.replace(/_(delta|gamma|theta|ltp)$/, '')
+      return (
+        <Line
+          key={key}
+          type="monotone"
+          dataKey={key}
+          dot={false}
+          stroke={stringToColor(baseKey)}  // Same color for lines with same baseKey
+          strokeWidth={2}
+          name={baseKey}  // Shows simplified legend name without suffix
+        />
+      )
+    })
 }
 
 function movingAverage(data, key, windowSize) {
@@ -224,7 +241,7 @@ function App() {
               <YAxis />
               <CartesianGrid strokeDasharray="3 3" />
               <Tooltip labelFormatter={label => new Date(label).toLocaleString()} />
-              <Legend />
+              <Legend formatter={legendFormatter} />
               {getLinesForGreek(dataKeys, greek)}
             </LineChart>
           </ResponsiveContainer>
