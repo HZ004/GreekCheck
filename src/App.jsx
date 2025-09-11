@@ -10,7 +10,7 @@ import 'react-datepicker/dist/react-datepicker.css'
 const S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL
 
 const greekOrder = ['ltp', 'delta', 'gamma', 'theta']
-const greekKeys = ['delta', 'gamma', 'theta', 'ltp'] // original used for aggregation
+const greekKeys = ['delta', 'gamma', 'theta', 'ltp']
 const intervals = [
   { label: '5 seconds', value: 5 },
   { label: '15 seconds', value: 15 },
@@ -20,7 +20,6 @@ const intervals = [
   { label: '5 minutes', value: 300 }
 ]
 
-// Helper to generate consistent color by baseKey (strike/instrument)
 function stringToColor(str) {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -35,12 +34,33 @@ function stringToColor(str) {
   return color
 }
 
-// Custom legend formatter to remove suffixes
 function legendFormatter(value) {
   return value.replace(/_(delta|gamma|theta|ltp)$/, '')
 }
 
-// For synchronized Y-axis domain calculation
+// Round values helper
+function roundValue(value, greek) {
+  if (value === null || value === undefined || isNaN(value)) return value
+  if (greek === 'gamma') return Number(value.toFixed(3))
+  if (['ltp', 'delta', 'theta'].includes(greek)) return Number(value.toFixed(2))
+  return value
+}
+
+// Round axis min/max with padding
+function roundAxisDomain(min, max, greek) {
+  if (greek === 'gamma') {
+    return [
+      Math.floor(min * 1000) / 1000,
+      Math.ceil(max * 1000) / 1000
+    ]
+  } else {
+    return [
+      Math.floor(min * 100) / 100,
+      Math.ceil(max * 100) / 100
+    ]
+  }
+}
+
 function getYAxisDomain(data, keys) {
   let min = Infinity
   let max = -Infinity
@@ -57,9 +77,13 @@ function getYAxisDomain(data, keys) {
     min = 0
     max = 1
   }
-  // Add some padding
+  // Add padding
   const padding = (max - min) * 0.1 || 0.1
-  return [min - padding, max + padding]
+  const rawMin = min - padding
+  const rawMax = max + padding
+  // Extract greek from keys by suffix (assuming uniform greek suffix in keys)
+  const greek = keys.length > 0 ? (keys[0].match(/_(delta|gamma|theta|ltp)$/) || [null, null])[1] : null
+  return roundAxisDomain(rawMin, rawMax, greek)
 }
 
 function getLinesForKeys(keys) {
@@ -98,11 +122,21 @@ function movingAverage(data, key, windowSize) {
   return result
 }
 
-function roundValue(value, greek) {
-  if (value === null || value === undefined || isNaN(value)) return value
-  if (greek === 'gamma') return Number(value.toFixed(3))
-  if (['ltp', 'delta', 'theta'].includes(greek)) return Number(value.toFixed(2))
-  return value
+// Custom tooltip to order items by their y-values descending (top to bottom)
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload || payload.length === 0) return null
+  // Sort payload by yValue descending (y coordinate on chart)
+  const sortedPayload = payload.slice().sort((a, b) => (b.payload[b.dataKey] ?? 0) - (a.payload[a.dataKey] ?? 0))
+  return (
+    <div className="custom-tooltip" style={{ backgroundColor: 'white', padding: '10px', border: '1px solid #ccc' }}>
+      <p><strong>{new Date(label).toLocaleString()}</strong></p>
+      {sortedPayload.map((entry, index) => (
+        <p key={`item-${index}`} style={{ color: entry.color, margin: 0 }}>
+          {entry.name}: {Number(entry.value).toFixed(entry.dataKey.endsWith('_gamma') ? 3 : 2)}
+        </p>
+      ))}
+    </div>
+  )
 }
 
 function App() {
@@ -111,7 +145,7 @@ function App() {
   const [error, setError] = useState(null)
   const [startDate, setStartDate] = useState(null)
   const [endDate, setEndDate] = useState(null)
-  const [interval, setInterval] = useState(5) // default 5 sec
+  const [interval, setInterval] = useState(5)
 
   useEffect(() => {
     async function fetchAndParse() {
@@ -179,16 +213,14 @@ function App() {
         if (k === 'timestamp') return
         let validVals = vals.filter(v => v !== null && v !== undefined && !isNaN(v))
         let avgVal = validVals.length > 0 ? validVals.reduce((a, b) => a + b, 0) / validVals.length : null
-        // Round value according to greek suffix
-        const greekSuffixMatch = k.match(/_(delta|gamma|theta|ltp)$/)
-        const greek = greekSuffixMatch ? greekSuffixMatch[1] : null
+        const greekMatch = k.match(/_(delta|gamma|theta|ltp)$/)
+        const greek = greekMatch ? greekMatch[1] : null
         newRow[k] = greek ? roundValue(avgVal, greek) : avgVal
       })
       resultRows.push(newRow)
     }
     resultRows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
-    // Apply moving average smoothing on each key except timestamp
     greekKeys.forEach(greek => {
       resultRows.forEach((row, idx) => {
         Object.keys(row).forEach(k => {
@@ -196,7 +228,6 @@ function App() {
             let window = Math.max(1, Math.floor(interval / 5))
             let maValues = movingAverage(resultRows, k, window)
             resultRows.forEach((r, index) => {
-              // Round after averaging
               r[k] = roundValue(maValues[index], greek)
             })
           }
@@ -213,7 +244,6 @@ function App() {
 
   const dataKeys = Object.keys(filteredAggregatedData[0]).filter(key => key !== 'timestamp')
 
-  // Group keys by greek type and CE / PE separation
   const keysByGreekAndType = {}
   greekOrder.forEach(greek => {
     keysByGreekAndType[greek] = {
@@ -222,7 +252,6 @@ function App() {
     }
   })
 
-  // Calculate Y-axis domain for CE and PE combined for each greek
   const yDomains = {}
   greekOrder.forEach(greek => {
     const combinedKeys = [...keysByGreekAndType[greek].CE, ...keysByGreekAndType[greek].PE]
@@ -230,7 +259,7 @@ function App() {
   })
 
   return (
-    <div className="app-container">
+    <div className="app-container" style={{ padding: '10px', boxSizing: 'border-box' }}>
       <h1>Upstox Option Greeks Dashboard</h1>
       <div className="controls">
         <label>
@@ -278,13 +307,15 @@ function App() {
           gridTemplateColumns: '1fr 1fr',
           gridTemplateRows: 'repeat(4, 320px)',
           gap: '20px',
-          marginTop: '20px'
+          marginTop: '20px',
+          boxSizing: 'border-box',
+          padding: '10px'
         }}
       >
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
             {/* CE plot left */}
-            <section className="chart-section" style={{ border: '1px solid #ccc', padding: '10px' }}>
+            <section className="chart-section" style={{ border: '1px solid #ccc', padding: '10px', boxSizing: 'border-box', overflow: 'hidden' }}>
               <h2>CE {greek.toUpperCase()} Over Time</h2>
               <ResponsiveContainer width="100%" height={280}>
                 <LineChart
@@ -298,7 +329,7 @@ function App() {
                   />
                   <YAxis domain={yDomains[greek]} />
                   <CartesianGrid strokeDasharray="3 3" />
-                  <Tooltip labelFormatter={label => new Date(label).toLocaleString()} />
+                  <Tooltip content={<CustomTooltip />} />
                   <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.8em' }} />
                   {getLinesForKeys(keysByGreekAndType[greek].CE)}
                 </LineChart>
@@ -306,7 +337,7 @@ function App() {
             </section>
 
             {/* PE plot right */}
-            <section className="chart-section" style={{ border: '1px solid #ccc', padding: '10px' }}>
+            <section className="chart-section" style={{ border: '1px solid #ccc', padding: '10px', boxSizing: 'border-box', overflow: 'hidden' }}>
               <h2>PE {greek.toUpperCase()} Over Time</h2>
               <ResponsiveContainer width="100%" height={280}>
                 <LineChart
@@ -320,7 +351,7 @@ function App() {
                   />
                   <YAxis domain={yDomains[greek]} />
                   <CartesianGrid strokeDasharray="3 3" />
-                  <Tooltip labelFormatter={label => new Date(label).toLocaleString()} />
+                  <Tooltip content={<CustomTooltip />} />
                   <Legend formatter={legendFormatter} wrapperStyle={{ fontSize: '0.8em' }} />
                   {getLinesForKeys(keysByGreekAndType[greek].PE)}
                 </LineChart>
