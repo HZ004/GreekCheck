@@ -19,8 +19,8 @@ const intervals = [
 ]
 
 const colorPalette = [
-  '#0072B2', '#E69F00', '#F0E442', '#D55E00',
-  '#CC79A7', '#56B4E9', '#009E73', '#999999'
+  '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+  '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'
 ]
 
 const baseKeyColorMap = {}
@@ -75,7 +75,6 @@ function getYAxisDomain(data, keys) {
     max = 1
   }
   let delta = max - min
-  // Custom padding especially for delta and gamma
   const greek = keys.length > 0 ? (keys[0].match(/_(delta|gamma|theta|ltp)$/) || [null, null])[1] : null
   let extra = 0
   if (greek === 'gamma') {
@@ -89,7 +88,6 @@ function getYAxisDomain(data, keys) {
   const expandedMax = Math.ceil((max + extra) * 100) / 100
   return roundAxisDomain(expandedMin, expandedMax, greek)
 }
-
 
 function movingAverage(data, key, windowSize) {
   const result = []
@@ -114,10 +112,10 @@ const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload || payload.length === 0) return null
   const sortedPayload = payload.slice().sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
   return (
-    <div className="custom-tooltip" style={{ backgroundColor: 'white', padding: 10, borderRadius: 6, boxShadow: '0 2px 5px rgba(0,0,0,0.15)', border: '1px solid #ddd' }}>
+    <div className="custom-tooltip">
       <p><strong>{new Date(label).toLocaleString()}</strong></p>
       {sortedPayload.map((entry, index) => (
-        <p key={`item-${index}`} style={{ color: entry.color, margin: 0, fontWeight: '500' }}>
+        <p key={`item-${index}`} style={{ color: entry.color, margin: 0, fontWeight: '600' }}>
           {entry.name}: {Number(entry.value).toFixed(entry.dataKey.endsWith('_gamma') ? 3 : 2)}
         </p>
       ))}
@@ -238,7 +236,6 @@ function App() {
 
   const dataKeys = Object.keys(filteredAggregatedData[0]).filter(key => key !== 'timestamp')
 
-  // Prepare color mapping for all base keys (all unique instruments/strikes)
   const allBaseKeys = Array.from(new Set(dataKeys.map(k => k.replace(/_(delta|gamma|theta|ltp)$/, ''))))
   const colorMap = {}
   allBaseKeys.forEach(key => {
@@ -271,53 +268,55 @@ function App() {
     })
   }
 
-  const availableHeight = windowHeight - 250
-  const chartHeight = Math.max(240, availableHeight / 4 - 30)
+  const availableHeight = window.innerHeight - 260
+  const chartHeight = Math.max(260, availableHeight / 4 - 20)
 
   return (
     <div className="app-container">
-      <h1>Upstox Option Greeks Dashboard</h1>
-      <div className="controls">
-        <label>
-          Start Date:
-          <DatePicker
-            selected={startDate}
-            onChange={date => setStartDate(date)}
-            selectsStart
-            startDate={startDate}
-            endDate={endDate}
-            maxDate={endDate || new Date()}
-            isClearable
-            placeholderText="Select start date"
-          />
-        </label>
-        <label>
-          End Date:
-          <DatePicker
-            selected={endDate}
-            onChange={date => setEndDate(date)}
-            selectsEnd
-            startDate={startDate}
-            endDate={endDate}
-            minDate={startDate}
-            maxDate={new Date()}
-            isClearable
-            placeholderText="Select end date"
-          />
-        </label>
-        <label>
-          Interval:
-          <select value={interval} onChange={e => setInterval(Number(e.target.value))}>
-            {intervals.map(opt => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <header className="header">
+        <h1>Upstox Option Greeks Dashboard</h1>
+        <div className="controls">
+          <label>
+            Start Date:
+            <DatePicker
+              selected={startDate}
+              onChange={date => setStartDate(date)}
+              selectsStart
+              startDate={startDate}
+              endDate={endDate}
+              maxDate={endDate || new Date()}
+              isClearable
+              placeholderText="Select start date"
+            />
+          </label>
+          <label>
+            End Date:
+            <DatePicker
+              selected={endDate}
+              onChange={date => setEndDate(date)}
+              selectsEnd
+              startDate={startDate}
+              endDate={endDate}
+              minDate={startDate}
+              maxDate={new Date()}
+              isClearable
+              placeholderText="Select end date"
+            />
+          </label>
+          <label>
+            Interval:
+            <select value={interval} onChange={e => setInterval(Number(e.target.value))}>
+              {intervals.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </header>
 
-      <div className="charts-grid" style={{ maxHeight: availableHeight + 100, overflowY: 'auto' }}>
+      <main className="charts-grid" style={{ maxHeight: availableHeight + 50 }}>
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
             <GreekChart
@@ -330,7 +329,7 @@ function App() {
               colorMap={colorMap}
               legendFormatter={legendFormatter}
               customTooltip={<CustomTooltip />}
-              height={chartHeight - 50}
+              height={chartHeight}
             />
             <GreekChart
               title={`PE ${greek.toUpperCase()} Over Time`}
@@ -342,11 +341,11 @@ function App() {
               colorMap={colorMap}
               legendFormatter={legendFormatter}
               customTooltip={<CustomTooltip />}
-              height={chartHeight - 50}
+              height={chartHeight}
             />
           </React.Fragment>
         ))}
-      </div>
+      </main>
     </div>
   )
 }
