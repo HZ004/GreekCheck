@@ -290,16 +290,17 @@ function App() {
           <label>Interval:<select value={interval} onChange={e => setInterval(Number(e.target.value))}>{intervals.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}</select></label>
         </div>
       </header>
-
+      
       <main
         className="charts-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))',
-          gap: '50px 25px',  // More vertical (50px) and horizontal (25px) spacing
-          padding: '30px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', 
+          gap: '60px 30px',       // Big vertical/horizontal spacing
+          padding: '40px 30px',   // Add breathing room around all charts
+          alignItems: 'start',    // Prevent stretching that causes overlap
           overflowY: 'auto',
-          alignItems: 'start' // Prevent stretch/overlap
+          boxSizing: 'border-box'
         }}
       >
 
@@ -308,14 +309,23 @@ function App() {
             <div
               style={{
                 background: '#fff',
-                borderRadius: '12px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
-                padding: '15px',
-                transition: 'transform 0.2s',
-                height: `${chartHeight}px`, // Keep charts consistent height
+                borderRadius: '16px',
+                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.08)',
+                padding: '20px',
+                minHeight: `${chartHeight + 40}px`,
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                boxSizing: 'border-box',
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)';
               }}
             >
               <GreekChart
@@ -335,14 +345,23 @@ function App() {
             <div
               style={{
                 background: '#fff',
-                borderRadius: '12px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
-                padding: '15px',
-                transition: 'transform 0.2s',
-                height: `${chartHeight}px`,
+                borderRadius: '16px',
+                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.08)',
+                padding: '20px',
+                minHeight: `${chartHeight + 40}px`,
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                boxSizing: 'border-box',
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)';
               }}
             >
               <GreekChart
