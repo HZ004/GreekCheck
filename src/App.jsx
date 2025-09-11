@@ -87,7 +87,6 @@ function getYAxisDomain(data, keys) {
   let expandedMin = Math.floor((min - extra) * 100) / 100
   let expandedMax = Math.ceil((max + extra) * 100) / 100
 
-  // Enforce min=0 for all Greeks except Theta
   if (greek !== 'theta' && expandedMin < 0) {
     expandedMin = 0
   }
@@ -274,92 +273,65 @@ function App() {
     })
   }
 
-  const availableHeight = window.innerHeight - 260
-  const chartHeight = Math.max(260, availableHeight / 4 - 20)
+  const availableHeight = window.innerHeight - 300
+  const chartHeight = Math.max(260, availableHeight / 4)
 
   return (
-    <div className="app-container">
-      <header className="header">
-        <h1>Upstox Option Greeks Dashboard</h1>
-        <div className="controls">
-          <label>
-            Start Date:
-            <DatePicker
-              selected={startDate}
-              onChange={date => setStartDate(date)}
-              selectsStart
-              startDate={startDate}
-              endDate={endDate}
-              maxDate={endDate || new Date()}
-              isClearable
-              placeholderText="Select start date"
-            />
-          </label>
-          <label>
-            End Date:
-            <DatePicker
-              selected={endDate}
-              onChange={date => setEndDate(date)}
-              selectsEnd
-              startDate={startDate}
-              endDate={endDate}
-              minDate={startDate}
-              maxDate={new Date()}
-              isClearable
-              placeholderText="Select end date"
-            />
-          </label>
-          <label>
-            Interval:
-            <select value={interval} onChange={e => setInterval(Number(e.target.value))}>
-              {intervals.map(opt => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
+    <div className="app-container" style={{ fontFamily: 'Inter, sans-serif', background: '#f9fafb', minHeight: '100vh' }}>
+      <header className="header" style={{ 
+        position: 'sticky', top: 0, zIndex: 100, 
+        background: '#fff', padding: '16px 24px', 
+        boxShadow: '0 2px 8px rgba(0,0,0,0.05)', borderBottom: '1px solid #e5e7eb' 
+      }}>
+        <h1 style={{ fontSize: '1.8rem', fontWeight: '700', marginBottom: '12px' }}>Upstox Option Greeks Dashboard</h1>
+        <div className="controls" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+          <label>Start Date:<DatePicker selected={startDate} onChange={setStartDate} selectsStart startDate={startDate} endDate={endDate} maxDate={endDate || new Date()} isClearable placeholderText="Select start date" /></label>
+          <label>End Date:<DatePicker selected={endDate} onChange={setEndDate} selectsEnd startDate={startDate} endDate={endDate} minDate={startDate} maxDate={new Date()} isClearable placeholderText="Select end date" /></label>
+          <label>Interval:<select value={interval} onChange={e => setInterval(Number(e.target.value))}>{intervals.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}</select></label>
         </div>
       </header>
 
       <main
         className="charts-grid"
         style={{
-          maxHeight: availableHeight + 50,
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gridTemplateRows: `repeat(4, ${chartHeight}px)`,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))',
+          gridAutoRows: `${chartHeight}px`,
           gap: '20px',
-          overflowY: 'auto',
-          padding: '10px'
+          padding: '20px',
+          overflowY: 'auto'
         }}
       >
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
-            <GreekChart
-              title={`CE ${greek.toUpperCase()} Over Time`}
-              data={filteredAggregatedData}
-              dataKeys={keysByGreekAndType[greek].CE}
-              yDomain={yDomains[greek]}
-              hiddenLines={hiddenLines}
-              toggleLine={toggleLine}
-              colorMap={colorMap}
-              legendFormatter={legendFormatter}
-              customTooltip={<CustomTooltip />}
-              height={chartHeight}
-            />
-            <GreekChart
-              title={`PE ${greek.toUpperCase()} Over Time`}
-              data={filteredAggregatedData}
-              dataKeys={keysByGreekAndType[greek].PE}
-              yDomain={yDomains[greek]}
-              hiddenLines={hiddenLines}
-              toggleLine={toggleLine}
-              colorMap={colorMap}
-              legendFormatter={legendFormatter}
-              customTooltip={<CustomTooltip />}
-              height={chartHeight}
-            />
+            <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', padding: '10px', transition: 'transform 0.2s', }}>
+              <GreekChart
+                title={`CE ${greek.toUpperCase()} Over Time`}
+                data={filteredAggregatedData}
+                dataKeys={keysByGreekAndType[greek].CE}
+                yDomain={yDomains[greek]}
+                hiddenLines={hiddenLines}
+                toggleLine={toggleLine}
+                colorMap={colorMap}
+                legendFormatter={legendFormatter}
+                customTooltip={<CustomTooltip />}
+                height={chartHeight}
+              />
+            </div>
+            <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', padding: '10px', transition: 'transform 0.2s' }}>
+              <GreekChart
+                title={`PE ${greek.toUpperCase()} Over Time`}
+                data={filteredAggregatedData}
+                dataKeys={keysByGreekAndType[greek].PE}
+                yDomain={yDomains[greek]}
+                hiddenLines={hiddenLines}
+                toggleLine={toggleLine}
+                colorMap={colorMap}
+                legendFormatter={legendFormatter}
+                customTooltip={<CustomTooltip />}
+                height={chartHeight}
+              />
+            </div>
           </React.Fragment>
         ))}
       </main>
