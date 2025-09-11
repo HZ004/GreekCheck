@@ -75,12 +75,21 @@ function getYAxisDomain(data, keys) {
     max = 1
   }
   let delta = max - min
-  let extra = delta < 2 ? 2 : delta * 0.12
+  // Custom padding especially for delta and gamma
+  const greek = keys.length > 0 ? (keys[0].match(/_(delta|gamma|theta|ltp)$/) || [null, null])[1] : null
+  let extra = 0
+  if (greek === 'gamma') {
+    extra = Math.max(0.01, delta * 0.15)
+  } else if (greek === 'delta') {
+    extra = Math.max(0.05, delta * 0.2)
+  } else {
+    extra = delta < 2 ? 2 : delta * 0.12
+  }
   const expandedMin = Math.floor((min - extra) * 100) / 100
   const expandedMax = Math.ceil((max + extra) * 100) / 100
-  const greek = keys.length > 0 ? (keys[0].match(/_(delta|gamma|theta|ltp)$/) || [null, null])[1] : null
   return roundAxisDomain(expandedMin, expandedMax, greek)
 }
+
 
 function movingAverage(data, key, windowSize) {
   const result = []
