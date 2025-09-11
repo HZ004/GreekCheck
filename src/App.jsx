@@ -38,7 +38,6 @@ function legendFormatter(value) {
   return value.replace(/_(delta|gamma|theta|ltp)$/, '')
 }
 
-// Round values helper
 function roundValue(value, greek) {
   if (value === null || value === undefined || isNaN(value)) return value
   if (greek === 'gamma') return Number(value.toFixed(3))
@@ -46,7 +45,6 @@ function roundValue(value, greek) {
   return value
 }
 
-// Round axis min/max with padding
 function roundAxisDomain(min, max, greek) {
   if (greek === 'gamma') {
     return [
@@ -77,11 +75,9 @@ function getYAxisDomain(data, keys) {
     min = 0
     max = 1
   }
-  // Add padding
   const padding = (max - min) * 0.1 || 0.1
   const rawMin = min - padding
   const rawMax = max + padding
-  // Extract greek from keys by suffix (assuming uniform greek suffix in keys)
   const greek = keys.length > 0 ? (keys[0].match(/_(delta|gamma|theta|ltp)$/) || [null, null])[1] : null
   return roundAxisDomain(rawMin, rawMax, greek)
 }
@@ -122,13 +118,12 @@ function movingAverage(data, key, windowSize) {
   return result
 }
 
-// Custom tooltip to order items by their y-values descending (top to bottom)
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload || payload.length === 0) return null
-  // Sort payload by yValue descending (y coordinate on chart)
-  const sortedPayload = payload.slice().sort((a, b) => (b.payload[b.dataKey] ?? 0) - (a.payload[a.dataKey] ?? 0))
+  // Sort payload descending by value for tooltip ordering
+  const sortedPayload = payload.slice().sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
   return (
-    <div className="custom-tooltip" style={{ backgroundColor: 'white', padding: '10px', border: '1px solid #ccc' }}>
+    <div className="custom-tooltip" style={{ backgroundColor: 'white', padding: 10, border: '1px solid #ccc' }}>
       <p><strong>{new Date(label).toLocaleString()}</strong></p>
       {sortedPayload.map((entry, index) => (
         <p key={`item-${index}`} style={{ color: entry.color, margin: 0 }}>
@@ -146,6 +141,13 @@ function App() {
   const [startDate, setStartDate] = useState(null)
   const [endDate, setEndDate] = useState(null)
   const [interval, setInterval] = useState(5)
+  const [windowHeight, setWindowHeight] = useState(window.innerHeight)
+
+  useEffect(() => {
+    const handleResize = () => setWindowHeight(window.innerHeight)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   useEffect(() => {
     async function fetchAndParse() {
@@ -258,11 +260,15 @@ function App() {
     yDomains[greek] = getYAxisDomain(filteredAggregatedData, combinedKeys)
   })
 
+  // Calculate available height for layout
+  const availableHeight = windowHeight - 250 // approximate space for controls and margins
+  const chartHeight = Math.max(240, availableHeight / 4 - 30) // 4 rows with gap
+
   return (
-    <div className="app-container" style={{ padding: '10px', boxSizing: 'border-box' }}>
+    <div className="app-container" style={{ padding: 10, boxSizing: 'border-box' }}>
       <h1>Upstox Option Greeks Dashboard</h1>
-      <div className="controls">
-        <label>
+      <div className="controls" style={{ marginBottom: 20 }}>
+        <label style={{ marginRight: 20 }}>
           Start Date:
           <DatePicker
             selected={startDate}
@@ -275,7 +281,7 @@ function App() {
             placeholderText="Select start date"
           />
         </label>
-        <label>
+        <label style={{ marginRight: 20 }}>
           End Date:
           <DatePicker
             selected={endDate}
@@ -291,7 +297,7 @@ function App() {
         </label>
         <label>
           Interval:
-          <select value={interval} onChange={e => setInterval(Number(e.target.value))}>
+          <select value={interval} onChange={e => setInterval(Number(e.target.value))} style={{ marginLeft: 5 }}>
             {intervals.map(opt => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
@@ -305,19 +311,21 @@ function App() {
         style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gridTemplateRows: 'repeat(4, 320px)',
-          gap: '20px',
-          marginTop: '20px',
+          gridAutoRows: `${chartHeight}px`,
+          gap: 20,
+          overflowY: 'auto',
+          maxHeight: availableHeight + 100,
           boxSizing: 'border-box',
-          padding: '10px'
+          padding: 10,
+          border: '1px solid #ddd',
+          borderRadius: 4
         }}
       >
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
-            {/* CE plot left */}
-            <section className="chart-section" style={{ border: '1px solid #ccc', padding: '10px', boxSizing: 'border-box', overflow: 'hidden' }}>
-              <h2>CE {greek.toUpperCase()} Over Time</h2>
-              <ResponsiveContainer width="100%" height={280}>
+            <section className="chart-section" style={{ border: '1px solid #ccc', padding: 10, boxSizing: 'border-box', overflow: 'hidden' }}>
+              <h2 style={{ marginBottom: 10 }}>CE {greek.toUpperCase()} Over Time</h2>
+              <ResponsiveContainer width="100%" height={chartHeight - 50}>
                 <LineChart
                   data={filteredAggregatedData}
                   margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
@@ -336,10 +344,9 @@ function App() {
               </ResponsiveContainer>
             </section>
 
-            {/* PE plot right */}
-            <section className="chart-section" style={{ border: '1px solid #ccc', padding: '10px', boxSizing: 'border-box', overflow: 'hidden' }}>
-              <h2>PE {greek.toUpperCase()} Over Time</h2>
-              <ResponsiveContainer width="100%" height={280}>
+            <section className="chart-section" style={{ border: '1px solid #ccc', padding: 10, boxSizing: 'border-box', overflow: 'hidden' }}>
+              <h2 style={{ marginBottom: 10 }}>PE {greek.toUpperCase()} Over Time</h2>
+              <ResponsiveContainer width="100%" height={chartHeight - 50}>
                 <LineChart
                   data={filteredAggregatedData}
                   margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
