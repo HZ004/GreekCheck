@@ -298,7 +298,8 @@ function App() {
           gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', 
           gap: '60px 30px',       // Big vertical/horizontal spacing
           padding: '40px 30px',   // Add breathing room around all charts
-          alignItems: 'start',    // Prevent stretching that causes overlap
+          alignItems: 'center',     // Vertically center
+          justifyItems: 'center',
           overflowY: 'auto',
           boxSizing: 'border-box'
         }}
