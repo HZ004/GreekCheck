@@ -296,16 +296,28 @@ function App() {
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))',
-          gridAutoRows: `${chartHeight}px`,
-          gap: '40px 20px', // ⬅️ Increased row gap
-          padding: '20px',
-          overflowY: 'auto'
+          gap: '50px 25px',  // More vertical (50px) and horizontal (25px) spacing
+          padding: '30px',
+          overflowY: 'auto',
+          alignItems: 'start' // Prevent stretch/overlap
         }}
       >
 
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
-            <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', padding: '10px', transition: 'transform 0.2s', }}>
+            <div
+              style={{
+                background: '#fff',
+                borderRadius: '12px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                padding: '15px',
+                transition: 'transform 0.2s',
+                height: `${chartHeight}px`, // Keep charts consistent height
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center'
+              }}
+            >
               <GreekChart
                 title={`CE ${greek.toUpperCase()} Over Time`}
                 data={filteredAggregatedData}
@@ -319,7 +331,20 @@ function App() {
                 height={chartHeight}
               />
             </div>
-            <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', padding: '10px', transition: 'transform 0.2s' }}>
+        
+            <div
+              style={{
+                background: '#fff',
+                borderRadius: '12px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                padding: '15px',
+                transition: 'transform 0.2s',
+                height: `${chartHeight}px`,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center'
+              }}
+            >
               <GreekChart
                 title={`PE ${greek.toUpperCase()} Over Time`}
                 data={filteredAggregatedData}
