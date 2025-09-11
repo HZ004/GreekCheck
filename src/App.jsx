@@ -10,7 +10,6 @@ import 'react-datepicker/dist/react-datepicker.css'
 const S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL
 
 const greekKeys = ['delta', 'gamma', 'theta', 'ltp']
-
 const intervals = [
   { label: '5 seconds', value: 5 },
   { label: '15 seconds', value: 15 },
@@ -19,6 +18,14 @@ const intervals = [
   { label: '2 minutes', value: 120 },
   { label: '5 minutes', value: 300 }
 ]
+
+// Custom color map for line keys
+const lineColorMap = {
+  delta: '#8884d8',
+  gamma: '#82ca9d',
+  theta: '#ff7300',
+  ltp: '#0088FE'
+}
 
 function getLinesForGreek(dataKeys, greek) {
   return dataKeys
@@ -29,24 +36,10 @@ function getLinesForGreek(dataKeys, greek) {
         type="monotone"
         dataKey={key}
         dot={false}
-        stroke={`#${stringToColor(key)}`}
+        stroke={lineColorMap[greek] || '#000000'} // Use custom color or fallback black
         strokeWidth={2}
       />
     ))
-}
-
-function stringToColor(str) {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash)
-    hash = hash & hash
-  }
-  let color = '#'
-  for (let i = 0; i < 3; i++) {
-    const value = (hash >> (i * 8)) & 0xff
-    color += ('00' + value.toString(16)).substr(-2)
-  }
-  return color
 }
 
 function movingAverage(data, key, windowSize) {
@@ -72,7 +65,6 @@ function App() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-
   const [startDate, setStartDate] = useState(null)
   const [endDate, setEndDate] = useState(null)
   const [interval, setInterval] = useState(5) // default 5 sec
@@ -103,7 +95,6 @@ function App() {
     if (data.length === 0) return []
 
     let filtered = data
-
     if (startDate) filtered = filtered.filter(d => new Date(d.timestamp) >= startDate)
     if (endDate) filtered = filtered.filter(d => new Date(d.timestamp) <= endDate)
 
@@ -119,7 +110,6 @@ function App() {
       bucketDate.setHours(0, 0, 0, 0)
       bucketDate = new Date(bucketDate.getTime() + bucketStartSec * 1000)
       let bucketKey = bucketDate.toISOString()
-
       if (!buckets.has(bucketKey)) {
         let newRow = { timestamp: bucketKey }
         Object.keys(row).forEach(k => {
@@ -149,7 +139,6 @@ function App() {
       })
       resultRows.push(newRow)
     }
-
     resultRows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
     // Apply moving average smoothing on each key except timestamp
@@ -168,19 +157,18 @@ function App() {
     return resultRows
   }, [data, startDate, endDate, interval])
 
-
-
   if (loading) return <div className="loading">Loading data...</div>
   if (error) return <div className="error">Error loading data: {error}</div>
   if (filteredAggregatedData.length === 0) return <div className="no-data">No data for selected range</div>
 
   const dataKeys = Object.keys(filteredAggregatedData[0]).filter(key => key !== 'timestamp')
+
   console.log("Aggregated data:", filteredAggregatedData)
   console.log("Data keys:", dataKeys)
+
   return (
     <div className="app-container">
       <h1>Upstox Option Greeks Dashboard</h1>
-
       <div className="controls">
         <label>
           Start Date:
@@ -220,7 +208,6 @@ function App() {
           </select>
         </label>
       </div>
-
       {greekKeys.map(greek => (
         <section key={greek} className="chart-section">
           <h2>{greek.toUpperCase()} Over Time</h2>
