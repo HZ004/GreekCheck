@@ -310,7 +310,17 @@ function App() {
         borderBottom: '1px solid #333',
         textAlign: 'center'
       }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: '700', marginBottom: '16px', color: '#f0f0f0' }}>Upstox Option Greeks Dashboard</h1>
+        <h1 style={{
+          fontSize: '2rem',
+          fontWeight: '700',
+          marginBottom: '16px',
+          background: 'linear-gradient(90deg, #FF8A00, #E52E71)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          textShadow: '1px 1px 2px rgba(0,0,0,0.7)',
+        }}>
+          Upstox Option Greeks Dashboard
+        </h1>
         <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '20px', alignItems: 'center' }}>
           <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>Start Date
             <DatePicker
