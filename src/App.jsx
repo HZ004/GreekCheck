@@ -74,7 +74,6 @@ function getYAxisDomain(data, keys) {
     min = 0
     max = 1
   }
-
   let delta = max - min
   const greek = keys.length > 0 ? (keys[0].match(/_(delta|gamma|theta|ltp)$/) || [null, null])[1] : null
   let extra = 0
@@ -323,7 +322,18 @@ function App() {
         </div>
       </header>
 
-      <main className="charts-grid" style={{ maxHeight: availableHeight + 50 }}>
+      <main
+        className="charts-grid"
+        style={{
+          maxHeight: availableHeight + 50,
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gridTemplateRows: `repeat(4, ${chartHeight}px)`,
+          gap: '20px',
+          overflowY: 'auto',
+          padding: '10px'
+        }}
+      >
         {greekOrder.map(greek => (
           <React.Fragment key={greek}>
             <GreekChart
