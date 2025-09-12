@@ -176,7 +176,14 @@ function App() {
       if (!response.ok) throw new Error(`HTTP error: ${response.status}`)
       const csvText = await response.text()
       const parsed = Papa.parse(csvText, { header: true, dynamicTyping: true })
-      setData(parsed.data.filter(row => row.timestamp))
+      // Filter for valid date strings only
+      const validData = parsed.data.filter(
+        row =>
+          typeof row.timestamp === 'string' &&
+          row.timestamp.trim() !== '' &&
+          !isNaN(Date.parse(row.timestamp))
+      )
+      setData(validData)
       setLoading(false)
     } catch (e) {
       setError(e.message)
@@ -209,6 +216,7 @@ function App() {
     let buckets = new Map()
     filtered.forEach(row => {
       let dt = new Date(row.timestamp)
+      if (isNaN(dt)) return // safety skip
       let totalSeconds = dt.getHours() * 3600 + dt.getMinutes() * 60 + dt.getSeconds()
       let bucketStartSec = Math.floor(totalSeconds / interval) * interval
       let bucketDate = new Date(dt)
@@ -422,4 +430,5 @@ function App() {
     </div>
   )
 }
+
 export default App
