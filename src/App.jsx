@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import Papa from 'papaparse'
 import DatePicker from 'react-datepicker'
 import 'react-datepicker/dist/react-datepicker.css'
@@ -162,7 +162,6 @@ function App() {
   const [isTodayLive, setIsTodayLive] = useState(true) // true: live today; false: historic
   const [liveDataUrl, setLiveDataUrl] = useState(LIVE_S3_CSV_URL)
   const [historicDataUrl, setHistoricDataUrl] = useState(HISTORIC_S3_CSV_URL)
-  const intervalRef = useRef(null)
 
   useEffect(() => {
     const handleResize = () => setWindowHeight(window.innerHeight)
@@ -190,31 +189,9 @@ function App() {
         setLoading(false)
       }
     }
-    
-    // Clear existing interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
-    }
-
     setLoading(true)
     fetchAndParse()
-
-    // Set up auto-refresh only for live data
-    if (isTodayLive) {
-      intervalRef.current = setInterval(() => {
-        fetchAndParse()
-      }, interval * 1000) // Convert seconds to milliseconds
-    }
-
-    // Cleanup function
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
-      }
-    }
-  }, [isTodayLive, liveDataUrl, historicDataUrl, interval])
+  }, [isTodayLive, liveDataUrl, historicDataUrl])
 
   const filteredAggregatedData = useMemo(() => {
     if (data.length === 0) return []
@@ -256,15 +233,7 @@ function App() {
       })
       resultRows.push(newRow)
     }
-    resultRows.sort((a, b) => {
-      const dateA = new Date(a.timestamp)
-      const dateB = new Date(b.timestamp)
-      // Handle invalid dates by putting them at the end
-      if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0
-      if (isNaN(dateA.getTime())) return 1
-      if (isNaN(dateB.getTime())) return -1
-      return dateA - dateB
-    })
+    resultRows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
     const keysToSmooth = new Set()
     resultRows.forEach(row => {
       Object.keys(row).forEach(k => {
@@ -385,7 +354,7 @@ function App() {
             </>
           )}
           <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>
-            <span>{isTodayLive ? 'Refresh Interval' : 'Interval'}</span>
+            <span>Interval</span>
             <select value={interval} onChange={e => setInterval(Number(e.target.value))} style={{
               padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff',
             }}>
