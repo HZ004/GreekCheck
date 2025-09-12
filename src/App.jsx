@@ -5,7 +5,8 @@ import 'react-datepicker/dist/react-datepicker.css'
 import './App.css'
 import GreekChart from './components/GreekChart'
 
-const S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL
+const LIVE_S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL_TODAY
+const HISTORIC_S3_CSV_URL = import.meta.env.VITE_S3_CSV_URL
 
 const greekOrder = ['ltp', 'delta', 'gamma', 'theta']
 const greekKeys = ['delta', 'gamma', 'theta', 'ltp']
@@ -86,9 +87,7 @@ function getYAxisDomain(data, keys) {
   }
   let expandedMin = Math.floor((min - extra) * 100) / 100
   let expandedMax = Math.ceil((max + extra) * 100) / 100
-
   if (greek !== 'theta' && expandedMin < 0) expandedMin = 0
-
   return roundAxisDomain(expandedMin, expandedMax, greek)
 }
 
@@ -103,11 +102,9 @@ function movingAverage(data, key, windowSize) {
     }
     return result
   }
-
   let sum = 0
   let count = 0
   const queue = []
-
   for (let i = 0; i < n; i++) {
     const raw = data[i][key]
     const v = (typeof raw === 'number' && !isNaN(raw)) ? raw : null
@@ -116,7 +113,6 @@ function movingAverage(data, key, windowSize) {
       sum += v
       count++
     }
-
     if (queue.length > windowSize) {
       const removed = queue.shift()
       if (removed !== null) {
@@ -124,10 +120,8 @@ function movingAverage(data, key, windowSize) {
         count--
       }
     }
-
     result[i] = count > 0 ? sum / count : null
   }
-
   return result
 }
 
@@ -165,6 +159,9 @@ function App() {
   const [interval, setInterval] = useState(5)
   const [windowHeight, setWindowHeight] = useState(window.innerHeight)
   const [hiddenLines, setHiddenLines] = useState(new Set())
+  const [isTodayLive, setIsTodayLive] = useState(true) // true: live today; false: historic
+  const [liveDataUrl, setLiveDataUrl] = useState(LIVE_S3_CSV_URL)
+  const [historicDataUrl, setHistoricDataUrl] = useState(HISTORIC_S3_CSV_URL)
 
   useEffect(() => {
     const handleResize = () => setWindowHeight(window.innerHeight)
@@ -174,13 +171,14 @@ function App() {
 
   useEffect(() => {
     async function fetchAndParse() {
-      if (!S3_CSV_URL) {
-        setError("S3 CSV URL is not set in environment variables")
+      const urlToFetch = isTodayLive ? liveDataUrl : historicDataUrl
+      if (!urlToFetch) {
+        setError("Selected S3 CSV URL is not set.")
         setLoading(false)
         return
       }
       try {
-        const response = await fetch(S3_CSV_URL)
+        const response = await fetch(urlToFetch)
         if (!response.ok) throw new Error(`HTTP error: ${response.status}`)
         const csvText = await response.text()
         const parsed = Papa.parse(csvText, { header: true, dynamicTyping: true })
@@ -191,16 +189,15 @@ function App() {
         setLoading(false)
       }
     }
+    setLoading(true)
     fetchAndParse()
-  }, [])
+  }, [isTodayLive, liveDataUrl, historicDataUrl])
 
   const filteredAggregatedData = useMemo(() => {
     if (data.length === 0) return []
-
     let filtered = data
     if (startDate) filtered = filtered.filter(d => new Date(d.timestamp) >= startDate)
     if (endDate) filtered = filtered.filter(d => new Date(d.timestamp) <= endDate)
-
     let buckets = new Map()
     filtered.forEach(row => {
       let dt = new Date(row.timestamp)
@@ -223,7 +220,6 @@ function App() {
         })
       }
     })
-
     let resultRows = []
     for (let [bucketKey, valuesObj] of buckets) {
       let newRow = { timestamp: bucketKey }
@@ -238,7 +234,6 @@ function App() {
       resultRows.push(newRow)
     }
     resultRows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-
     const keysToSmooth = new Set()
     resultRows.forEach(row => {
       Object.keys(row).forEach(k => {
@@ -249,7 +244,6 @@ function App() {
         }
       })
     })
-
     const window = Math.max(1, Math.floor(interval / 5))
     keysToSmooth.forEach(k => {
       const greekMatch = k.match(/_(delta|gamma|theta|ltp)$/)
@@ -259,7 +253,6 @@ function App() {
         resultRows[i][k] = roundValue(maValues[i], greek)
       }
     })
-
     return resultRows
   }, [data, startDate, endDate, interval])
 
@@ -273,7 +266,6 @@ function App() {
   allBaseKeys.forEach(key => {
     colorMap[key] = getColorForKey(key)
   })
-
   const keysByGreekAndType = {}
   greekOrder.forEach(greek => {
     keysByGreekAndType[greek] = {
@@ -281,13 +273,11 @@ function App() {
       PE: dataKeys.filter(k => k.endsWith(`_${greek}`) && k.startsWith('PE_'))
     }
   })
-
   const yDomains = {}
   greekOrder.forEach(greek => {
     const combinedKeys = [...keysByGreekAndType[greek].CE, ...keysByGreekAndType[greek].PE]
     yDomains[greek] = getYAxisDomain(filteredAggregatedData, combinedKeys)
   })
-
   function toggleLine(key) {
     setHiddenLines(prev => {
       const next = new Set(prev)
@@ -296,7 +286,6 @@ function App() {
       return next
     })
   }
-
   const availableHeight = windowHeight - 300
   const chartHeight = Math.max(260, availableHeight / 4)
 
@@ -322,47 +311,58 @@ function App() {
           Upstox Option Greeks Dashboard
         </h1>
         <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '20px', alignItems: 'center' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>Start Date
-            <DatePicker
-              selected={startDate}
-              onChange={setStartDate}
-              selectsStart
-              startDate={startDate}
-              endDate={endDate}
-              maxDate={endDate || new Date()}
-              isClearable
-              placeholderText="Select start date"
-              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff' }}
-            />
+          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>
+            <span>Data Source</span>
+            <select value={isTodayLive ? 'today' : 'historic'} onChange={e => setIsTodayLive(e.target.value === 'today')} style={{
+              padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff',
+            }}>
+              <option value="today">Today's Live Data</option>
+              <option value="historic">Choose Historic Data</option>
+            </select>
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>End Date
-            <DatePicker
-              selected={endDate}
-              onChange={setEndDate}
-              selectsEnd
-              startDate={startDate}
-              endDate={endDate}
-              minDate={startDate}
-              maxDate={new Date()}
-              isClearable
-              placeholderText="Select end date"
-              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff' }}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>Interval
+          {!isTodayLive && (
+            <>
+              <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>
+                <span>Start Date</span>
+                <DatePicker
+                  selected={startDate}
+                  onChange={setStartDate}
+                  selectsStart
+                  startDate={startDate}
+                  endDate={endDate}
+                  maxDate={endDate || new Date()}
+                  isClearable
+                  placeholderText="Select start date"
+                  style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff' }}
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>
+                <span>End Date</span>
+                <DatePicker
+                  selected={endDate}
+                  onChange={setEndDate}
+                  selectsEnd
+                  startDate={startDate}
+                  endDate={endDate}
+                  minDate={startDate}
+                  maxDate={new Date()}
+                  isClearable
+                  placeholderText="Select end date"
+                  style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff' }}
+                />
+              </label>
+            </>
+          )}
+          <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>
+            <span>Interval</span>
             <select value={interval} onChange={e => setInterval(Number(e.target.value))} style={{
-              padding: '6px 10px',
-              borderRadius: '8px',
-              border: '1px solid #555',
-              background: '#222',
-              color: '#fff'
+              padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff',
             }}>
               {intervals.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </label>
         </div>
       </header>
-
       <main style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))',
@@ -414,5 +414,4 @@ function App() {
     </div>
   )
 }
-
 export default App
