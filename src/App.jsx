@@ -159,39 +159,47 @@ function App() {
   const [interval, setInterval] = useState(5)
   const [windowHeight, setWindowHeight] = useState(window.innerHeight)
   const [hiddenLines, setHiddenLines] = useState(new Set())
-  const [isTodayLive, setIsTodayLive] = useState(true) // true: live today; false: historic
-  const [liveDataUrl, setLiveDataUrl] = useState(LIVE_S3_CSV_URL)
-  const [historicDataUrl, setHistoricDataUrl] = useState(HISTORIC_S3_CSV_URL)
+  const [isTodayLive, setIsTodayLive] = useState(true)
 
-  useEffect(() => {
-    const handleResize = () => setWindowHeight(window.innerHeight)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
+  const liveDataUrl = LIVE_S3_CSV_URL
+  const historicDataUrl = HISTORIC_S3_CSV_URL
 
-  useEffect(() => {
-    async function fetchAndParse() {
-      const urlToFetch = isTodayLive ? liveDataUrl : historicDataUrl
-      if (!urlToFetch) {
-        setError("Selected S3 CSV URL is not set.")
-        setLoading(false)
-        return
-      }
-      try {
-        const response = await fetch(urlToFetch)
-        if (!response.ok) throw new Error(`HTTP error: ${response.status}`)
-        const csvText = await response.text()
-        const parsed = Papa.parse(csvText, { header: true, dynamicTyping: true })
-        setData(parsed.data.filter(row => row.timestamp))
-        setLoading(false)
-      } catch (e) {
-        setError(e.message)
-        setLoading(false)
-      }
+  async function fetchAndParse() {
+    const urlToFetch = isTodayLive ? liveDataUrl : historicDataUrl
+    if (!urlToFetch) {
+      setError("Selected S3 CSV URL is not set.")
+      setLoading(false)
+      return
     }
+    try {
+      const response = await fetch(urlToFetch)
+      if (!response.ok) throw new Error(`HTTP error: ${response.status}`)
+      const csvText = await response.text()
+      const parsed = Papa.parse(csvText, { header: true, dynamicTyping: true })
+      setData(parsed.data.filter(row => row.timestamp))
+      setLoading(false)
+    } catch (e) {
+      setError(e.message)
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
     setLoading(true)
     fetchAndParse()
-  }, [isTodayLive, liveDataUrl, historicDataUrl])
+  }, [isTodayLive, liveDataUrl, historicDataUrl, startDate, endDate])
+
+  useEffect(() => {
+    let intervalId
+    if (isTodayLive) {
+      intervalId = setInterval(() => {
+        fetchAndParse()
+      }, interval * 1000)
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [interval, isTodayLive])
 
   const filteredAggregatedData = useMemo(() => {
     if (data.length === 0) return []
