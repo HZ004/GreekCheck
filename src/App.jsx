@@ -256,7 +256,15 @@ function App() {
       })
       resultRows.push(newRow)
     }
-    resultRows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    resultRows.sort((a, b) => {
+      const dateA = new Date(a.timestamp)
+      const dateB = new Date(b.timestamp)
+      // Handle invalid dates by putting them at the end
+      if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0
+      if (isNaN(dateA.getTime())) return 1
+      if (isNaN(dateB.getTime())) return -1
+      return dateA - dateB
+    })
     const keysToSmooth = new Set()
     resultRows.forEach(row => {
       Object.keys(row).forEach(k => {
