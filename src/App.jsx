@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import Papa from 'papaparse'
 import DatePicker from 'react-datepicker'
 import 'react-datepicker/dist/react-datepicker.css'
@@ -162,6 +162,7 @@ function App() {
   const [isTodayLive, setIsTodayLive] = useState(true) // true: live today; false: historic
   const [liveDataUrl, setLiveDataUrl] = useState(LIVE_S3_CSV_URL)
   const [historicDataUrl, setHistoricDataUrl] = useState(HISTORIC_S3_CSV_URL)
+  const intervalRef = useRef(null)
 
   useEffect(() => {
     const handleResize = () => setWindowHeight(window.innerHeight)
@@ -189,9 +190,31 @@ function App() {
         setLoading(false)
       }
     }
+    
+    // Clear existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+
     setLoading(true)
     fetchAndParse()
-  }, [isTodayLive, liveDataUrl, historicDataUrl])
+
+    // Set up auto-refresh only for live data
+    if (isTodayLive) {
+      intervalRef.current = setInterval(() => {
+        fetchAndParse()
+      }, interval * 1000) // Convert seconds to milliseconds
+    }
+
+    // Cleanup function
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+  }, [isTodayLive, liveDataUrl, historicDataUrl, interval])
 
   const filteredAggregatedData = useMemo(() => {
     if (data.length === 0) return []
@@ -354,7 +377,7 @@ function App() {
             </>
           )}
           <label style={{ display: 'flex', flexDirection: 'column', fontWeight: '500', color: '#ddd' }}>
-            <span>Interval</span>
+            <span>{isTodayLive ? 'Refresh Interval' : 'Interval'}</span>
             <select value={interval} onChange={e => setInterval(Number(e.target.value))} style={{
               padding: '6px 10px', borderRadius: '8px', border: '1px solid #555', background: '#222', color: '#fff',
             }}>
